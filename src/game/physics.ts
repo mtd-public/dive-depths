@@ -104,12 +104,15 @@ export function metersForDepth(depth: number): number {
   return Math.floor(depth / DEPTH_PER_METER)
 }
 
-// The boss is fixed at the bottom of the board — a vast, mostly-submerged
-// creature rather than something that swims up to meet the sub. Its mine
-// squads spawn separately, from the same edge every other threat does, so
-// they still cross the same distance (and get the same proximity-fuse
-// warning) as a normal mine, regardless of where the boss itself sits.
-const BOSS_Y = BOARD_H - 40
+// The boss holds low on the board — a vast, mostly-submerged creature
+// rather than something that swims up to meet the sub — but not so low
+// it falls outside the camera's visible range on anything but a tall,
+// narrow viewport (frameCamera's visible height shrinks a lot on wider
+// aspect ratios). Its mine squads spawn separately, from the same edge
+// every other threat does, so they still cross the same distance (and get
+// the same proximity-fuse warning) as a normal mine, regardless of where
+// the boss itself sits.
+const BOSS_Y = BOARD_H * 0.58
 const BOSS_ENTER_SPEED = 140
 export const BOSS_R = 50
 const BOSS_HP_MIN = 15
