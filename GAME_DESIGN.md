@@ -424,3 +424,49 @@ A further round, on branch `feature/light-tuning-badge-follow`:
   threat is only ever on screen for a few seconds, so the depth the
   palette was at when it spawned is close enough for its whole life,
   and it avoids adding a new per-frame sync path to `syncThreats` for it.
+
+## Flashy bullet-hell orbs, on `feature/flashy-bullet-art`
+
+Every dodgeable projectile — player missiles, enemy sub fire, and mine
+shrapnel — switched from a 3D cone/shard shape to a single flat glowing
+"orb" sprite, closer to a reference bullet-hell screenshot the player
+matched against (glowing rings with a bright hot center):
+
+- **One shared orb texture per bullet color**, baked once onto a canvas
+  (`bulletOrbTexture`): a colored radial glow, a bright ring in a lightened
+  tint of the same hue, and a small hot-white core — instead of the old
+  six separate cone/tip/halo materials. Player fire stays orange
+  (`0xff8c1a`), enemy fire (both enemy-sub shots and detonated-mine
+  shrapnel) stays red (`0xff2222`); a flat `PlaneGeometry` always faces the
+  camera here since it never rotates relative to the board, the same trick
+  the sub's own light-pool disc uses.
+- **Two color bugs found and fixed along the way, both from treating the
+  effect as "just turn on additive blending":**
+  - The ring was originally drawn pure white with `'lighter'` compositing
+    on top of an already-opaque fill — that combination clips straight to
+    full white regardless of the underlying hue, so the "orange" and "red"
+    rings rendered as a washed-out pale color once composited against the
+    game's (non-black) water. Fixed by tinting the ring itself (45% mixed
+    toward white, not 100%) and dropping the `'lighter'` op so it composites
+    normally instead of clipping.
+  - Both radial gradients faded their outer stop to `rgba(0,0,0,0)` —
+    transparent *black* — which interpolates the color toward black as it
+    fades, producing a visible dark halo ring right at the edge instead of
+    a clean fade to nothing. Fixed with a `hexToTransparent` helper that
+    keeps the same RGB and only drops alpha, so the glow fades to nothing
+    rather than fading through gray/black first.
+  - The material also switched from `AdditiveBlending` to normal alpha
+    blending for the same root reason: additive blending only ever adds
+    brightness, so a bright, mostly-opaque sprite clips to white against
+    anything but a near-black background — the water here usually isn't.
+    Normal blending shows the orb's actual designed color at every depth.
+- **Each bullet now carries a small `PointLight`** (intensity 0.7, range 55)
+  as a child of its sprite mesh, so it visibly lights the water and nearby
+  hulls around it rather than just being an unlit decal — kept short-range
+  and dim since a mine spray or a dense formation can have dozens on
+  screen at once.
+- **Bullet sprite materials now set `fog: false`.** The scene's distance
+  fog was mixing far-off bullets toward the murky fog color, which fought
+  the sprites' whole point (documented since they were first made
+  depth-invariant): a dodgeable projectile should read clearly no matter
+  how far down the board it is.
