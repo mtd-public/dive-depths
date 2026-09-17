@@ -365,3 +365,33 @@ A further round on top of the above, on branch `feature/formations-brightness-tu
   across its (now much longer) lifetime. A `laserActiveT` countdown surfaces
   in the weapon badge ("Ultimate firing 14s…") and the Fire button reads
   "Firing…" while it's running.
+
+## Bullet art restored, a visible light pool, and tap-to-fire
+
+A further round, on branch `feature/tap-fire-swipe-steer`:
+
+- **Bullets are the original cone-and-tip shapes again, with an added glow.**
+  The brief switch to plain glowing spheres is reverted — `buildBulletCone`
+  builds the same body-cone-plus-emissive-tip shape missiles and enemy fire
+  always had, mine shrapnel keeps its tetrahedron-shard look, and all three
+  gained an additive-blended halo mesh behind them for a genuine glow. The
+  orange-vs-red split by source (player vs. enemy) from the previous round
+  is unchanged, and `orientAlongVelocity` (removed when bullets were
+  spheres, since spheres have no facing) is back, since cones and shards do.
+- **The light around the sub is now a large visible circle**, not just the
+  invisible falloff of the point lights added earlier. A soft radial-gradient
+  texture (`radialGlowTexture`, opaque center fading to transparent edge)
+  on a big additive-blended plane sits just behind the hull, tinted from
+  `palette.subGlow` like the two point lights, and its opacity ramps with
+  depth the same way theirs does — dim near the surface, a real visible
+  light pool once the water's dark.
+- **Touch input inverted: swipe steers, tap fires, no dedicated Fire
+  button.** `useBoardControls` no longer picks a steering direction from
+  which half of the board a tap landed on — a press that never swipes now
+  always calls `onTap` (wired to `fire`), and only an actual swipe steers.
+  This freed up the board entirely, so the in-board `.fire-tap` pill and
+  the desktop/landscape footer Fire button are both gone, along with their
+  now-dead CSS (`.fire-tap*`, `.btn--fire*`, `.footer-bar`, and the
+  charged-glow keyframe that animated them). A mouse click-and-drag on
+  desktop works the same way a touch swipe/tap does, since both ride the
+  same pointer events — no separate desktop control was needed.

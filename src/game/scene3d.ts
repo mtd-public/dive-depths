@@ -32,17 +32,29 @@ const LASER_BEAM_CENTER_Y = (LASER_BEAM_TOP + LASER_BEAM_BOTTOM) / 2
 
 const upAxis = new THREE.Vector3(0, 1, 0)
 
-// Every bullet in the game is a bright glowing circle, deliberately
-// depth-invariant (not part of the palette lerp) so a dodgeable projectile
-// always reads clearly — orange for the player's own fire, red for
-// anything fired at them (enemy subs and detonated mines alike), so which
-// bullets are yours is obvious at a glance. The core carries the identity
-// color at full saturation; the halo is a lighter tint of the same hue with
-// additive blending for a genuine glow rather than a flat tinted sphere.
-const PLAYER_BULLET_CORE_COLOR = 0xff8c1a
-const PLAYER_BULLET_GLOW_COLOR = 0xffcf7a
-const ENEMY_BULLET_CORE_COLOR = 0xff2222
-const ENEMY_BULLET_GLOW_COLOR = 0xff7a6b
+/** Orients an object built nose-up (+Y) to face its actual board-space
+ *  travel direction — board y increases downward, world y increases
+ *  upward, hence the sign flip. Used by missiles and enemy/mine fire, since
+ *  both can travel in arbitrary 2D directions, not just vertically. */
+function orientAlongVelocity(object: THREE.Object3D, vx: number, vy: number) {
+  if (vx === 0 && vy === 0) return
+  const dir = new THREE.Vector3(vx, -vy, 0).normalize()
+  object.quaternion.setFromUnitVectors(upAxis, dir)
+}
+
+// Bullets are the original cone-and-tip shapes (a body cone plus a smaller
+// emissive tip cone), just with an added additive-blended glow halo — the
+// shape reads as "missile"/"shot" the way it always did, the halo is what's
+// new. Colors are deliberately depth-invariant (not part of the palette
+// lerp) so a dodgeable projectile always reads clearly — orange for the
+// player's own fire, red for anything fired at them (enemy subs and
+// detonated mines alike).
+const PLAYER_BULLET_BODY_COLOR = 0xff8c1a
+const PLAYER_BULLET_TIP_COLOR = 0xffe27a
+const PLAYER_BULLET_HALO_COLOR = 0xffcf7a
+const ENEMY_BULLET_BODY_COLOR = 0xff2222
+const ENEMY_BULLET_TIP_COLOR = 0xffb3a0
+const ENEMY_BULLET_HALO_COLOR = 0xff7a6b
 
 function seededRandom(seed: number) {
   let s = seed % 2147483647
@@ -74,6 +86,26 @@ function gradientTexture(colors: Palette['water']): THREE.CanvasTexture {
   return texture
 }
 
+/** A soft round glow — opaque at the center, fully transparent at the edge
+ *  — for the light pool around the sub, rather than a hard-edged disc. */
+function radialGlowTexture(color: number): THREE.CanvasTexture {
+  const size = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const css = hexToCss(color)
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  gradient.addColorStop(0, css)
+  gradient.addColorStop(0.4, css)
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, size, size)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
 function flat(color: number, extra?: THREE.MeshStandardMaterialParameters) {
   return new THREE.MeshStandardMaterial({ color, flatShading: true, ...extra })
 }
@@ -94,12 +126,14 @@ interface Materials {
   mineLamp: THREE.MeshStandardMaterial
   /** Bullets, split by who fired them — always at full visibility
    *  regardless of depth, since a dodgeable projectile has to read clearly
-   *  at any depth. Player missiles use the `player*` pair; enemy sub fire
+   *  at any depth. Player missiles use the `player*` set; enemy sub fire
    *  and mine shrapnel both use `enemy*`, since both are hazards to dodge. */
-  playerBulletCore: THREE.MeshBasicMaterial
-  playerBulletGlow: THREE.MeshBasicMaterial
-  enemyBulletCore: THREE.MeshBasicMaterial
-  enemyBulletGlow: THREE.MeshBasicMaterial
+  playerBulletBody: THREE.MeshBasicMaterial
+  playerBulletTip: THREE.MeshBasicMaterial
+  playerBulletHalo: THREE.MeshBasicMaterial
+  enemyBulletBody: THREE.MeshBasicMaterial
+  enemyBulletTip: THREE.MeshBasicMaterial
+  enemyBulletHalo: THREE.MeshBasicMaterial
   tentacleBody: THREE.MeshStandardMaterial
   tentacleSucker: THREE.MeshStandardMaterial
   tentacleEyeGlow: THREE.MeshStandardMaterial
@@ -133,19 +167,21 @@ function makeMaterials(p: Palette): Materials {
     mineShell: flat(p.mineShell, { metalness: p.metalness * 0.5, roughness: 0.8 }),
     mineSpike: flat(p.mineSpike, { metalness: p.metalness, roughness: 0.45 }),
     mineLamp: flat(p.mineLamp, { emissive: p.mineLamp, emissiveIntensity: p.mineLampGlow, roughness: 0.4 }),
-    playerBulletCore: new THREE.MeshBasicMaterial({ color: PLAYER_BULLET_CORE_COLOR }),
-    playerBulletGlow: new THREE.MeshBasicMaterial({
-      color: PLAYER_BULLET_GLOW_COLOR,
+    playerBulletBody: new THREE.MeshBasicMaterial({ color: PLAYER_BULLET_BODY_COLOR }),
+    playerBulletTip: new THREE.MeshBasicMaterial({ color: PLAYER_BULLET_TIP_COLOR }),
+    playerBulletHalo: new THREE.MeshBasicMaterial({
+      color: PLAYER_BULLET_HALO_COLOR,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.6,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
-    enemyBulletCore: new THREE.MeshBasicMaterial({ color: ENEMY_BULLET_CORE_COLOR }),
-    enemyBulletGlow: new THREE.MeshBasicMaterial({
-      color: ENEMY_BULLET_GLOW_COLOR,
+    enemyBulletBody: new THREE.MeshBasicMaterial({ color: ENEMY_BULLET_BODY_COLOR }),
+    enemyBulletTip: new THREE.MeshBasicMaterial({ color: ENEMY_BULLET_TIP_COLOR }),
+    enemyBulletHalo: new THREE.MeshBasicMaterial({
+      color: ENEMY_BULLET_HALO_COLOR,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.6,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -226,6 +262,7 @@ interface Sub {
   shard: THREE.Mesh
   beaconLight: THREE.PointLight
   headlightLight: THREE.PointLight
+  glowDisc: THREE.Mesh
 }
 
 function buildSub(m: Materials): Sub {
@@ -290,6 +327,23 @@ function buildSub(m: Materials): Sub {
   beaconLight.position.set(-2, 24, 0)
   root.add(beaconLight)
 
+  // The light source around the sub, made visible: a large soft circle
+  // (not just the invisible falloff of the point lights above) sitting
+  // behind the hull so the sub reads as sitting inside its own light pool.
+  const glowDisc = new THREE.Mesh(
+    new THREE.PlaneGeometry(190, 190),
+    new THREE.MeshBasicMaterial({
+      map: radialGlowTexture(0xffffff),
+      color: 0xfff8dc,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  )
+  glowDisc.position.set(0, 0, -18)
+  root.add(glowDisc)
+
   const livesRing = makeLivesRing()
   livesRing.group.position.set(-2, 12, 5)
   root.add(livesRing.group)
@@ -297,29 +351,47 @@ function buildSub(m: Materials): Sub {
   const shard = makeRingShard()
   root.add(shard)
 
-  return { root, propeller, livesRing, shard, beaconLight, headlightLight }
+  return { root, propeller, livesRing, shard, beaconLight, headlightLight, glowDisc }
 }
 
 /* ---------------------------------------------------------------
-   Bullets — every dodgeable projectile is a glowing core inside a softer
-   additive halo, orange for the player's own fire and red for anything
+   Bullets — the original body-cone-plus-glowing-tip shape, built nose-up
+   (+Y) and oriented per-instance via orientAlongVelocity, with an added
+   additive-blended halo for glow. Orange for the player, red for anything
    fired at them (enemy subs and mine shrapnel alike).
 --------------------------------------------------------------- */
-function buildBulletMesh(core: THREE.MeshBasicMaterial, glow: THREE.MeshBasicMaterial): THREE.Group {
+function buildBulletCone(body: THREE.MeshBasicMaterial, tip: THREE.MeshBasicMaterial, halo: THREE.MeshBasicMaterial): THREE.Group {
   const g = new THREE.Group()
-  const halo = new THREE.Mesh(new THREE.IcosahedronGeometry(7, 1), glow)
-  g.add(halo)
-  const bulb = new THREE.Mesh(new THREE.IcosahedronGeometry(3.4, 1), core)
-  g.add(bulb)
+  const haloMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(8, 1), halo)
+  g.add(haloMesh)
+  const bodyMesh = new THREE.Mesh(new THREE.ConeGeometry(4, 15, 6), body)
+  g.add(bodyMesh)
+  const tipMesh = new THREE.Mesh(new THREE.ConeGeometry(2, 6, 6), tip)
+  tipMesh.position.y = -9
+  g.add(tipMesh)
   return g
 }
 
 function buildPlayerBullet(m: Materials): THREE.Group {
-  return buildBulletMesh(m.playerBulletCore, m.playerBulletGlow)
+  return buildBulletCone(m.playerBulletBody, m.playerBulletTip, m.playerBulletHalo)
 }
 
-function buildEnemyBullet(m: Materials): THREE.Group {
-  return buildBulletMesh(m.enemyBulletCore, m.enemyBulletGlow)
+function buildEnemyConeBullet(m: Materials): THREE.Group {
+  return buildBulletCone(m.enemyBulletBody, m.enemyBulletTip, m.enemyBulletHalo)
+}
+
+/** A mine's shrapnel — flung outward in all 8 directions, so it reads as
+ *  debris rather than an aimed shot: a spinning shard, not a cone, but the
+ *  same red identity and added glow halo as the rest of the enemy fire. */
+function buildMineShrapnel(m: Materials): THREE.Group {
+  const g = new THREE.Group()
+  const haloMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(7, 1), m.enemyBulletHalo)
+  g.add(haloMesh)
+  const body = new THREE.Mesh(new THREE.TetrahedronGeometry(4.4, 0), m.enemyBulletBody)
+  g.add(body)
+  const glow = new THREE.Mesh(new THREE.IcosahedronGeometry(2, 0), m.enemyBulletTip)
+  g.add(glow)
+  return g
 }
 
 /* ---------------------------------------------------------------
@@ -761,6 +833,7 @@ export class Scene3D {
     this.fill.intensity = palette.fill.intensity
     this.sub.beaconLight.color.setHex(palette.subGlow)
     this.sub.headlightLight.color.setHex(palette.subGlow)
+    ;(this.sub.glowDisc.material as THREE.MeshBasicMaterial).color.setHex(palette.subGlow)
 
     const fog = this.scene.fog as THREE.Fog
     fog.color.setHex(palette.fog.color)
@@ -846,6 +919,7 @@ export class Scene3D {
         this.scene.add(view)
       }
       view.position.set(boardXToWorld(missile.x), boardYToWorld(missile.y), 24)
+      orientAlongVelocity(view, missile.vx, missile.vy)
     }
     for (const [id, view] of this.missileViews) {
       if (seen.has(id)) continue
@@ -860,11 +934,12 @@ export class Scene3D {
       seen.add(projectile.id)
       let view = this.projectileViews.get(projectile.id)
       if (!view) {
-        view = buildEnemyBullet(this.materials)
+        view = projectile.kind === 'mine' ? buildMineShrapnel(this.materials) : buildEnemyConeBullet(this.materials)
         this.projectileViews.set(projectile.id, view)
         this.scene.add(view)
       }
       view.position.set(boardXToWorld(projectile.x), boardYToWorld(projectile.y), 24)
+      orientAlongVelocity(view, projectile.vx, projectile.vy)
     }
     for (const [id, view] of this.projectileViews) {
       if (seen.has(id)) continue
@@ -927,6 +1002,7 @@ export class Scene3D {
     // enters the depths, brighter overall than a passing glow would be.
     this.sub.beaconLight.intensity = 0.6 + this.depth * this.depth * 9
     this.sub.headlightLight.intensity = 1 + this.depth * this.depth * 6
+    ;(this.sub.glowDisc.material as THREE.MeshBasicMaterial).opacity = 0.18 + this.depth * this.depth * 0.55
 
     setLivesRing(this.sub.livesRing, world.lives, now)
 

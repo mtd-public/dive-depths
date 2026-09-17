@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 
 const SHORTCUTS: Array<{ keys: string[]; label: string }> = [
   { keys: ['←', '→'], label: 'Steer (or A / D)' },
-  { keys: ['Tap board'], label: 'Steer toward that side' },
+  { keys: ['Swipe board'], label: 'Steer left/right' },
   { keys: ['Space', '↑'], label: 'Fire missile' },
+  { keys: ['Tap board'], label: 'Fire missile' },
   { keys: ['P'], label: 'Pause / resume' },
 ]
 
