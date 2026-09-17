@@ -239,13 +239,16 @@ button {
 }
 
 /* ---------- Weapon badge: follows the sub's x, sits just above it ----------
-   `top` is fixed at the sub's screen row (SUB_Y / BOARD_H in physics.ts,
-   22%) minus enough to clear the hull; `left` is a percentage set every
-   frame in WeaponBadge.tsx from the sub's actual x, with the translateX
-   here centering the badge on that point rather than anchoring an edge. */
+   Anchored by `bottom`, not `top`, so its lower edge stays a fixed distance
+   above the sub's screen row (SUB_Y / BOARD_H in physics.ts, 22% — hence
+   the 78% here) no matter how many rows are showing; a `top`-anchored box
+   instead grows downward as the second (laser) row appears, creeping back
+   over the sub's light pool. `left` is a percentage set every frame in
+   WeaponBadge.tsx from the sub's actual x, with the translateX here
+   centering the badge on that point rather than anchoring an edge. */
 .weapon-badge {
   position: absolute;
-  top: calc(22% - 46px);
+  bottom: calc(78% + 70px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
