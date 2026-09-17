@@ -7,8 +7,7 @@ import { useBoardControls } from './hooks/useBoardControls'
 
 export default function App() {
   const { state, world, steerLeft, steerRight, fire, start, togglePause, newGame } = useGameEngine()
-  const playable = state.phase === 'playing'
-  const controls = useBoardControls({ onLeft: steerLeft, onRight: steerRight })
+  const controls = useBoardControls({ onSwipeLeft: steerLeft, onSwipeRight: steerRight, onTap: fire })
 
   return (
     <div className="app">
@@ -62,40 +61,10 @@ export default function App() {
             onResume={togglePause}
             onNewGame={newGame}
           />
-
-          {/* Portrait's fire control. Sits inside the board, bottom-center,
-              under the thumb, clear of steering — its own pointer events
-              stay out of the board's tap-to-steer handler. */}
-          <button
-            type="button"
-            className={`fire-tap${state.laserReady || state.laserActiveT > 0 ? ' fire-tap--charged' : ''}`}
-            aria-label={state.laserReady ? 'Fire ultimate beam' : 'Fire missile'}
-            disabled={!playable}
-            onPointerDown={(e) => e.stopPropagation()}
-            onPointerUp={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation()
-              fire()
-            }}
-          >
-            <span aria-hidden="true">▼</span>
-            {state.laserActiveT > 0 ? 'Firing…' : state.laserReady ? 'Ultimate' : 'Fire'}
-          </button>
         </div>
 
         <StatsSidebar state={state} />
       </main>
-
-      <div className="footer-bar">
-        <button
-          type="button"
-          className={`btn btn--primary btn--fire${state.laserReady || state.laserActiveT > 0 ? ' btn--fire--charged' : ''}`}
-          onClick={fire}
-          disabled={!playable}
-        >
-          {state.laserActiveT > 0 ? 'Firing ultimate…' : state.laserReady ? 'Fire ultimate' : 'Fire'}
-        </button>
-      </div>
     </div>
   )
 }

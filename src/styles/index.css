@@ -170,11 +170,9 @@ button {
 }
 
 /* ---------- Layout ---------- */
-/* The topbar and footer keep their measured height; the play area is the only
-   thing that flexes, and min-height:0 lets it shrink rather than push the
-   footer past the bottom of the window. */
-.topbar,
-.footer-bar {
+/* The topbar keeps its measured height; the play area is the only thing
+   that flexes, and min-height:0 lets it shrink rather than overflow. */
+.topbar {
   flex: none;
 }
 
@@ -285,21 +283,6 @@ button {
   }
 }
 
-.fire-tap--charged,
-.btn--fire--charged {
-  animation: fire-charged-glow 0.9s ease-in-out infinite;
-}
-
-@keyframes fire-charged-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 0 rgba(154, 123, 255, 0);
-  }
-  50% {
-    box-shadow: 0 0 22px 4px rgba(154, 123, 255, 0.65);
-  }
-}
-
 .game-canvas {
   display: block;
   width: 100%;
@@ -307,61 +290,6 @@ button {
   background: var(--board-bg);
   cursor: pointer;
   touch-action: none;
-}
-
-/* ---------- Fire button, in-board (portrait) ----------
-   Steering is a tap/swipe on the board itself, so firing needs its own
-   control that doesn't eat those gestures — a large pill anchored to the
-   bottom of the board, thumb-reachable, that stops its own pointer events
-   from reaching the board's tap-to-steer handler. Hidden on the wide
-   layout below, where the footer's Fire button takes over instead. */
-.fire-tap {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-  z-index: 6;
-  width: 90vw;
-  width: 90dvw;
-  max-width: calc(100% - 20px);
-  height: 62px;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  gap: 11px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(255, 154, 77, 0.55);
-  background: rgba(8, 20, 33, 0.55);
-  backdrop-filter: blur(4px);
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 13.5px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.fire-tap span {
-  font-size: 16px;
-  line-height: 1;
-}
-
-.fire-tap:active:not(:disabled) {
-  transform: translateX(-50%) scale(0.97);
-  background: rgba(255, 154, 77, 0.22);
-}
-
-.fire-tap:disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.fire-tap:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
 }
 
 /* ---------- Stats sidebar (score/lives + best) ---------- */
@@ -476,29 +404,6 @@ button {
   filter: brightness(1.06);
 }
 
-.footer-bar {
-  display: none;
-  padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-}
-
-/* The desktop/landscape Fire control — the board's own fire-tap button
-   covers portrait, this covers pointer+keyboard layouts where the board
-   sits in a fixed-size frame instead of filling the screen. */
-.btn--fire {
-  flex: none;
-  min-width: 220px;
-  font-family: var(--font-mono);
-  font-size: 17px;
-  font-weight: 700;
-  padding: 16px 0;
-  letter-spacing: 0.02em;
-}
-
 /* ---------- Overlay ---------- */
 .overlay {
   position: absolute;
@@ -535,12 +440,12 @@ button {
 }
 
 /* ---------- Immersive portrait: phone and tablet held upright ----------
-   Everything below the topbar is board. Tapping/swiping the board steers,
-   the fire-tap pill sits on top of it, and depth rides in the badge, so the
-   footer button and stats card have nothing left to say — they come back
-   only on the wide layout below. The two queries are mutually exclusive
-   (this one needs portrait or a narrow window; that one needs landscape and
-   a wide one), so source order between them is moot. */
+   Everything below the topbar is board. Swiping it steers, tapping it
+   fires, and depth/weapon status ride in their badges, so the stats card
+   has nothing left to say — it comes back only on the wide layout below.
+   The two queries are mutually exclusive (this one needs portrait or a
+   narrow window; that one needs landscape and a wide one), so source order
+   between them is moot. */
 @media (orientation: portrait) and (pointer: coarse), (max-width: 839px) {
   .layout {
     padding: 0;
@@ -557,8 +462,7 @@ button {
     box-shadow: none;
   }
 
-  .stats-sidebar,
-  .footer-bar {
+  .stats-sidebar {
     display: none;
   }
 }
@@ -570,8 +474,9 @@ button {
    the window exactly, no page scroll. Gated on pointer:fine for desktop, or
    pointer:coarse + landscape for tablet — a touch tablet in landscape can
    easily be wider than 880px, so width alone can't tell it apart from
-   desktop. The board's own fire-tap pill is hidden here — the footer's Fire
-   button takes over, since desktop steering is keyboard, not a touch tap. */
+   desktop. The board's swipe-to-steer/tap-to-fire handlers work the same
+   way for a mouse (drag vs. click), so no separate desktop control is
+   needed here beyond the keyboard, which always works too. */
 @media (pointer: fine) and (min-width: 880px), (pointer: coarse) and (orientation: landscape) and (min-width: 840px) {
   .layout {
     display: grid;
@@ -604,14 +509,6 @@ button {
   .depth-badge,
   .weapon-badge {
     top: 10px;
-  }
-
-  .fire-tap {
-    display: none;
-  }
-
-  .footer-bar {
-    display: flex;
   }
 
   .stats-sidebar {
@@ -654,15 +551,6 @@ button {
 
   .stats-sidebar {
     padding: 10px;
-  }
-
-  .footer-bar {
-    padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .btn--fire {
-    padding: 12px 0;
-    font-size: 15px;
   }
 }
 
