@@ -470,3 +470,50 @@ matched against (glowing rings with a bright hot center):
   the sprites' whole point (documented since they were first made
   depth-invariant): a dodgeable projectile should read clearly no matter
   how far down the board it is.
+
+## Boss fights, on `feature/boss-fight`
+
+A recurring set-piece encounter every 2000m of diving:
+
+- **A coarser "distance" replaces the old abstract depth level.** `depth`
+  in physics.ts still drives difficulty scaling exactly as before (speed,
+  threat mix, formation odds) — a new `metersForDepth` just rescales it
+  (÷10) into a much slower-climbing number purely for boss pacing and for
+  what the player sees. The board's top-right badge now reads "Distance"
+  in meters instead of an abstract "Depth" level.
+- **Every 2000m, a boss replaces everything else on screen.** All existing
+  threats, enemy fire and power-ups are cleared the instant it triggers,
+  and normal spawning is suppressed for the whole encounter — the boss is
+  the only thing left to deal with. It rises into view from the same edge
+  every threat spawns from, then holds at a fixed row near the bottom of
+  the board — "fixed to the bottom" — rather than swimming up to meet the
+  sub.
+  - Its look leans on the same "mostly implied, only what breaks the
+    surface is modeled" trick the hazard tentacle's Loch-Ness body already
+    uses: a vast dark mass spans most of the board's width, two large
+    glowing dark-red eyes sit out near its left and right edges, a wide
+    mouth gapes open in the middle (up to 60% of the board's width) to
+    spit its mine squads, lined with a row of sharp decorative teeth, and
+    six tentacles trail off it into the background — all of that, teeth
+    and tentacles alike, is purely cosmetic with no collision; the actual
+    hit-circle is a modest 50-unit radius near the mouth.
+  - It takes 15-20 missile hits to kill (a random count per fight) and
+    explodes into a big burst on defeat; touching its body directly (while
+    it's not exploding) still costs the sub a hit, the same as any other
+    obstacle.
+  - Every few seconds it spits a squad of 5, 10 or 15 ordinary mine
+    threats in a grid formation centered on it — reusing the existing mine
+    entity wholesale (proximity fuse, shrapnel spray, killable for a clean
+    kill first) rather than inventing new projectile logic, and spawned
+    from the normal off-screen edge so they cross the same distance (and
+    give the same warning) as any other mine despite coming from its
+    mouth narratively.
+- **Diving distance freezes for the whole fight** (`world.depth` simply
+  stops advancing while a boss exists) and resumes just past the milestone
+  it took once the boss is gone — 2001m after the 2000m fight, 4001m after
+  the 4000m one, and so on — rather than immediately re-triggering at the
+  exact same distance.
+- **A "Boss Fight" banner with a radial health ring** appears top-center
+  of the board for the whole encounter (`BossBanner.tsx`) — a plain SVG
+  stroke-dashoffset ring rather than a 3D element, so it reads crisply
+  regardless of camera angle.

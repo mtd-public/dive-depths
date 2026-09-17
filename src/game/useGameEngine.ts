@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import type { GameState } from './types'
-import { createWorld, LIVES_MAX, score, steerLeft, steerRight, step, type World } from './physics'
+import { createWorld, LIVES_MAX, metersForDepth, score, steerLeft, steerRight, step, type World } from './physics'
 
 const BEST_KEY = 'dive-depths-best'
 
@@ -20,20 +20,18 @@ function saveBest(best: number) {
   }
 }
 
-function depthLevelFor(depth: number) {
-  return Math.floor(depth / 500) + 1
-}
-
 function initialState(): GameState {
   return {
     phase: 'ready',
     score: 0,
     best: loadBest(),
     lives: LIVES_MAX,
-    depthLevel: 1,
+    distance: 0,
     shotgunT: 0,
     laserReady: false,
     laserActiveT: 0,
+    bossActive: false,
+    bossHpFrac: 0,
   }
 }
 
@@ -44,10 +42,12 @@ type Action =
       type: 'TICK'
       score: number
       lives: number
-      depthLevel: number
+      distance: number
       shotgunT: number
       laserReady: boolean
       laserActiveT: number
+      bossActive: boolean
+      bossHpFrac: number
     }
   | { type: 'GAME_OVER'; score: number }
   | { type: 'NEW_GAME' }
@@ -68,10 +68,12 @@ function reducer(state: GameState, action: Action): GameState {
             ...state,
             score: action.score,
             lives: action.lives,
-            depthLevel: action.depthLevel,
+            distance: action.distance,
             shotgunT: action.shotgunT,
             laserReady: action.laserReady,
             laserActiveT: action.laserActiveT,
+            bossActive: action.bossActive,
+            bossHpFrac: action.bossHpFrac,
           }
         : state
 
@@ -86,6 +88,8 @@ function reducer(state: GameState, action: Action): GameState {
         shotgunT: 0,
         laserReady: false,
         laserActiveT: 0,
+        bossActive: false,
+        bossHpFrac: 0,
         best,
       }
     }
@@ -114,10 +118,12 @@ export function useGameEngine() {
   const lastTickRef = useRef({
     score: 0,
     lives: LIVES_MAX,
-    depthLevel: 1,
+    distance: 0,
     shotgunT: 0,
     laserReady: false,
     laserActiveT: 0,
+    bossActive: false,
+    bossHpFrac: 0,
   })
   phaseRef.current = state.phase
 
@@ -137,7 +143,16 @@ export function useGameEngine() {
   const togglePause = useCallback(() => dispatch({ type: 'PAUSE_TOGGLE' }), [])
   const newGame = useCallback(() => {
     worldRef.current = createWorld()
-    lastTickRef.current = { score: 0, lives: LIVES_MAX, depthLevel: 1, shotgunT: 0, laserReady: false, laserActiveT: 0 }
+    lastTickRef.current = {
+      score: 0,
+      lives: LIVES_MAX,
+      distance: 0,
+      shotgunT: 0,
+      laserReady: false,
+      laserActiveT: 0,
+      bossActive: false,
+      bossHpFrac: 0,
+    }
     dispatch({ type: 'NEW_GAME' })
   }, [])
 
@@ -160,19 +175,23 @@ export function useGameEngine() {
           const next = {
             score: score(world),
             lives: world.lives,
-            depthLevel: depthLevelFor(world.depth),
+            distance: metersForDepth(world.depth),
             shotgunT: world.weaponMode === 'shotgun' ? Math.ceil(world.weaponModeT) : 0,
             laserReady: world.laserCharges > 0,
             laserActiveT: world.laserT > 0 ? Math.ceil(world.laserT) : 0,
+            bossActive: world.boss !== null,
+            bossHpFrac: world.boss ? world.boss.hp / world.boss.maxHp : 0,
           }
           const prev = lastTickRef.current
           if (
             next.score !== prev.score ||
             next.lives !== prev.lives ||
-            next.depthLevel !== prev.depthLevel ||
+            next.distance !== prev.distance ||
             next.shotgunT !== prev.shotgunT ||
             next.laserReady !== prev.laserReady ||
-            next.laserActiveT !== prev.laserActiveT
+            next.laserActiveT !== prev.laserActiveT ||
+            next.bossActive !== prev.bossActive ||
+            next.bossHpFrac !== prev.bossHpFrac
           ) {
             lastTickRef.current = next
             dispatch({ type: 'TICK', ...next })

@@ -1,3 +1,4 @@
+import { BossBanner } from './components/BossBanner'
 import { GameCanvas } from './components/GameCanvas'
 import { GameOverlay } from './components/GameOverlay'
 import { KeyboardHelp } from './components/KeyboardHelp'
@@ -39,9 +40,10 @@ export default function App() {
         <div className="board-shell" {...controls}>
           <GameCanvas world={world} phase={state.phase} />
           <div className="depth-badge">
-            <span className="depth-badge__label">Depth</span>
-            <span className="depth-badge__value">{state.depthLevel}</span>
+            <span className="depth-badge__label">Distance</span>
+            <span className="depth-badge__value">{state.distance}m</span>
           </div>
+          <BossBanner active={state.bossActive} hpFrac={state.bossHpFrac} />
           <WeaponBadge
             world={world}
             shotgunT={state.shotgunT}
