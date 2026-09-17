@@ -568,3 +568,23 @@ up to `BOARD_H * 0.58`, comfortably inside the camera's visible range
 (`frameCamera` in scene3d.ts) while still holding well below the sub. Its
 mine squads are unaffected — they spawn from the same off-screen edge as
 always, independent of wherever the boss itself sits.
+
+## Removed the per-bullet point lights, on `feature/performance`
+
+Every player and enemy bullet was carrying its own real-time `PointLight`
+(added a few rounds back so bullets would visibly light the water around
+them). That's the kind of thing that's cheap with one or two of them and
+expensive with a screen full — every `MeshStandardMaterial` object in the
+scene (the sub, enemy subs, fish, mines, the tentacle, the boss) has to be
+re-shaded against every active light each frame, so cost scales with (lit
+objects) × (lights), not just (lights). A single mine spray puts 8 bullets
+on screen at once, a boss squad up to 15, and shotgun fire piles more on
+top — meaning the active light count could swing by a dozen or more
+within a single frame, exactly the "many projectiles on screen" scenario
+that was slowing the game down.
+
+Removed the light entirely; `buildBulletSprite` no longer takes a light
+color. Bullets look identical — their material is unlit (`MeshBasicMaterial`),
+so the light only ever affected *other* nearby surfaces, never the bullet's
+own appearance, and the sprite's baked-in glow (`bulletOrbTexture`'s ring
+and hot core) already reads as "glowing" without an actual light behind it.

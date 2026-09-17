@@ -463,23 +463,26 @@ function buildSub(m: Materials): Sub {
 --------------------------------------------------------------- */
 const bulletSpriteGeometry = new THREE.PlaneGeometry(BULLET_SPRITE_SIZE, BULLET_SPRITE_SIZE)
 
-// A small light per bullet so it actually casts a little glow onto the
-// water and nearby hulls, not just an unlit sprite — kept short-range and
-// low-intensity since dozens of these can be on screen at once in a mine
-// spray or a dense formation.
-function buildBulletSprite(material: THREE.MeshBasicMaterial, lightColor: number): THREE.Mesh {
-  const mesh = new THREE.Mesh(bulletSpriteGeometry, material)
-  const light = new THREE.PointLight(lightColor, 0.7, 55, 2)
-  mesh.add(light)
-  return mesh
+// No real light here on purpose — a dynamic PointLight per bullet used to
+// sit on this mesh, but every lit (MeshStandardMaterial) object in the
+// scene has to be re-shaded against every active light each frame, so
+// cost scales with (lit objects) × (lights). A mine spray alone puts 8
+// of these on screen at once, a boss squad up to 15, and shotgun fire
+// adds more on top — three.js was recompiling/re-evaluating lighting
+// against a light count that could swing by a dozen or more within a
+// single frame, which is exactly the stutter this was meant to fix. The
+// sprite's own baked glow (bulletOrbTexture's ring + hot core) already
+// reads as "glowing" without needing an actual light.
+function buildBulletSprite(material: THREE.MeshBasicMaterial): THREE.Mesh {
+  return new THREE.Mesh(bulletSpriteGeometry, material)
 }
 
 function buildPlayerBullet(m: Materials): THREE.Mesh {
-  return buildBulletSprite(m.playerBulletSprite, PLAYER_BULLET_COLOR)
+  return buildBulletSprite(m.playerBulletSprite)
 }
 
 function buildEnemyBullet(m: Materials): THREE.Mesh {
-  return buildBulletSprite(m.enemyBulletSprite, ENEMY_BULLET_COLOR)
+  return buildBulletSprite(m.enemyBulletSprite)
 }
 
 /* ---------------------------------------------------------------
