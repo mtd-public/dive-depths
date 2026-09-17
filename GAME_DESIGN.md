@@ -517,3 +517,21 @@ A recurring set-piece encounter every 2000m of diving:
   of the board for the whole encounter (`BossBanner.tsx`) — a plain SVG
   stroke-dashoffset ring rather than a 3D element, so it reads crisply
   regardless of camera angle.
+
+## Boss tuning: sooner, lighter, roomier, on `feature/boss-tuning`
+
+The first pass packed its mine squads far too solid to dodge through —
+testing a fight with the sub standing still and only firing (no dodging at
+all) still took no damage before this round, purely because the squads
+themselves left almost no gaps:
+
+- **Boss interval halved, 2000m → 1000m**, so the first encounter (and
+  every one after) comes around twice as often.
+- **Squads shrunk (5/10/15 → 3/6/9 mines) and narrowed to 3 columns**
+  (was 5), and column spacing nearly doubled (50 → 100 board units) — the
+  gap between adjacent mines' edges went from a scant 10 units (barely
+  more than the sub's own 40-unit width) to a comfortable 60, so there's
+  an actual lane to thread rather than a wall with the occasional pixel
+  of daylight.
+- **Longer gap between volleys** (2.4-3.8s → 3.6-5.5s), so a cleared squad
+  doesn't get replaced before the player's had a moment to breathe.
