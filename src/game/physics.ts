@@ -87,7 +87,7 @@ const FORMATION_DY = 60
 // 0.1 constant would round-trip through floating-point error and land the
 // "distance" a meter short of where cleared + 1 should put it.
 const DEPTH_PER_METER = 10
-const BOSS_INTERVAL_METERS = 2000
+const BOSS_INTERVAL_METERS = 1000
 export function metersForDepth(depth: number): number {
   return Math.floor(depth / DEPTH_PER_METER)
 }
@@ -103,14 +103,18 @@ export const BOSS_R = 50
 const BOSS_HP_MIN = 15
 const BOSS_HP_MAX = 20
 const BOSS_KILL_POINTS = 300
-const BOSS_ATTACK_MIN = 2.4
-const BOSS_ATTACK_MAX = 3.8
+// Longer gap between volleys, fewer/wider-spaced barrels per squad, and
+// fewer columns — earlier tuning packed the board too solid to dodge
+// through; this leaves real gaps between mines and real breathing room
+// between volleys instead of a near-constant wall.
+const BOSS_ATTACK_MIN = 3.6
+const BOSS_ATTACK_MAX = 5.5
 export const BOSS_MOUTH_OPEN_TIME = 0.5
 export const BOSS_EXPLODE_TIME = 1.4
-const BOSS_MINE_SQUAD_SIZES = [5, 10, 15] as const
-const BOSS_MINE_COLS = 5
-const BOSS_MINE_COL_SPACING = 50
-const BOSS_MINE_ROW_SPACING = 70
+const BOSS_MINE_SQUAD_SIZES = [3, 6, 9] as const
+const BOSS_MINE_COLS = 3
+const BOSS_MINE_COL_SPACING = 100
+const BOSS_MINE_ROW_SPACING = 90
 
 export type BossPhase = 'entering' | 'fighting' | 'exploding'
 
