@@ -25,13 +25,30 @@ function depthLevelFor(depth: number) {
 }
 
 function initialState(): GameState {
-  return { phase: 'ready', score: 0, best: loadBest(), lives: LIVES_MAX, depthLevel: 1, shotgunT: 0, laserReady: false }
+  return {
+    phase: 'ready',
+    score: 0,
+    best: loadBest(),
+    lives: LIVES_MAX,
+    depthLevel: 1,
+    shotgunT: 0,
+    laserReady: false,
+    laserActiveT: 0,
+  }
 }
 
 type Action =
   | { type: 'START' }
   | { type: 'PAUSE_TOGGLE' }
-  | { type: 'TICK'; score: number; lives: number; depthLevel: number; shotgunT: number; laserReady: boolean }
+  | {
+      type: 'TICK'
+      score: number
+      lives: number
+      depthLevel: number
+      shotgunT: number
+      laserReady: boolean
+      laserActiveT: number
+    }
   | { type: 'GAME_OVER'; score: number }
   | { type: 'NEW_GAME' }
 
@@ -54,13 +71,23 @@ function reducer(state: GameState, action: Action): GameState {
             depthLevel: action.depthLevel,
             shotgunT: action.shotgunT,
             laserReady: action.laserReady,
+            laserActiveT: action.laserActiveT,
           }
         : state
 
     case 'GAME_OVER': {
       const best = Math.max(state.best, action.score)
       if (best > state.best) saveBest(best)
-      return { ...state, phase: 'over', score: action.score, lives: 0, shotgunT: 0, laserReady: false, best }
+      return {
+        ...state,
+        phase: 'over',
+        score: action.score,
+        lives: 0,
+        shotgunT: 0,
+        laserReady: false,
+        laserActiveT: 0,
+        best,
+      }
     }
 
     case 'NEW_GAME':
@@ -84,7 +111,14 @@ export function useGameEngine() {
   const worldRef = useRef<World>(createWorld())
   const inputRef = useRef({ fire: false })
   const phaseRef = useRef(state.phase)
-  const lastTickRef = useRef({ score: 0, lives: LIVES_MAX, depthLevel: 1, shotgunT: 0, laserReady: false })
+  const lastTickRef = useRef({
+    score: 0,
+    lives: LIVES_MAX,
+    depthLevel: 1,
+    shotgunT: 0,
+    laserReady: false,
+    laserActiveT: 0,
+  })
   phaseRef.current = state.phase
 
   const doSteerLeft = useCallback(() => {
@@ -103,7 +137,7 @@ export function useGameEngine() {
   const togglePause = useCallback(() => dispatch({ type: 'PAUSE_TOGGLE' }), [])
   const newGame = useCallback(() => {
     worldRef.current = createWorld()
-    lastTickRef.current = { score: 0, lives: LIVES_MAX, depthLevel: 1, shotgunT: 0, laserReady: false }
+    lastTickRef.current = { score: 0, lives: LIVES_MAX, depthLevel: 1, shotgunT: 0, laserReady: false, laserActiveT: 0 }
     dispatch({ type: 'NEW_GAME' })
   }, [])
 
@@ -129,6 +163,7 @@ export function useGameEngine() {
             depthLevel: depthLevelFor(world.depth),
             shotgunT: world.weaponMode === 'shotgun' ? Math.ceil(world.weaponModeT) : 0,
             laserReady: world.laserCharges > 0,
+            laserActiveT: world.laserT > 0 ? Math.ceil(world.laserT) : 0,
           }
           const prev = lastTickRef.current
           if (
@@ -136,7 +171,8 @@ export function useGameEngine() {
             next.lives !== prev.lives ||
             next.depthLevel !== prev.depthLevel ||
             next.shotgunT !== prev.shotgunT ||
-            next.laserReady !== prev.laserReady
+            next.laserReady !== prev.laserReady ||
+            next.laserActiveT !== prev.laserActiveT
           ) {
             lastTickRef.current = next
             dispatch({ type: 'TICK', ...next })
