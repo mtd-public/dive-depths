@@ -9,6 +9,7 @@ import {
   LIVES_MAX,
   SUB_Y,
   type Boss,
+  type BossVariant,
   type Effect,
   type Missile,
   type Powerup,
@@ -63,6 +64,16 @@ const BOSS_EYE_COLOR = 0xd4001f
 // trick the hazard tentacle's implied Loch-Ness body already uses.
 const BOSS_SPAN = BOARD_W * 0.9
 const BOSS_MOUTH_MAX_WIDTH = BOARD_W * 0.6
+
+// The Kracken: the same fixed, depth-invariant treatment as the normal
+// boss, but its own dedicated orange materials rather than reused/mutated
+// copies of the normal boss's — keeps the two variants from fighting over
+// shared material state (e.g. the eye-pulse emissive tween below).
+const KRACKEN_BODY_COLOR = 0x8a3a0a
+const KRACKEN_JAW_COLOR = 0xff6a1a
+const KRACKEN_EYE_COLOR = 0xff8c1a
+const KRACKEN_TENTACLE_BODY_COLOR = 0x9a4a10
+const KRACKEN_TENTACLE_SUCKER_COLOR = 0xffb347
 
 function seededRandom(seed: number) {
   let s = seed % 2147483647
@@ -195,6 +206,13 @@ interface Materials {
   bossBody: THREE.MeshStandardMaterial
   bossJaw: THREE.MeshStandardMaterial
   bossEye: THREE.MeshStandardMaterial
+  /** The Kracken variant's own fixed, dedicated materials (see KRACKEN_*_COLOR
+   *  above) — never shared with the normal boss's. */
+  krackenBody: THREE.MeshStandardMaterial
+  krackenJaw: THREE.MeshStandardMaterial
+  krackenEye: THREE.MeshStandardMaterial
+  krackenTentacleBody: THREE.MeshStandardMaterial
+  krackenTentacleSucker: THREE.MeshStandardMaterial
   /** Bullet sprite materials, split by who fired them — always at full
    *  visibility regardless of depth, since a dodgeable projectile has to
    *  read clearly at any depth. Player missiles use `playerBulletSprite`;
@@ -211,6 +229,8 @@ interface Materials {
   powerupLaserGlow: THREE.MeshStandardMaterial
   powerupHealthBody: THREE.MeshStandardMaterial
   powerupHealthGlow: THREE.MeshStandardMaterial
+  powerupExtraLifeBody: THREE.MeshStandardMaterial
+  powerupExtraLifeGlow: THREE.MeshStandardMaterial
   laserBeamCore: THREE.MeshBasicMaterial
   laserBeamGlow: THREE.MeshBasicMaterial
   eyeWhite: THREE.MeshStandardMaterial
@@ -238,6 +258,19 @@ function makeMaterials(p: Palette): Materials {
     bossBody: flat(BOSS_BODY_COLOR, { roughness: 0.7 }),
     bossJaw: flat(BOSS_JAW_COLOR, { emissive: BOSS_JAW_COLOR, emissiveIntensity: 1.1, roughness: 0.6 }),
     bossEye: flat(BOSS_EYE_COLOR, { emissive: BOSS_EYE_COLOR, emissiveIntensity: 2.6, roughness: 0.3 }),
+    krackenBody: flat(KRACKEN_BODY_COLOR, {
+      roughness: 0.7,
+      emissive: KRACKEN_BODY_COLOR,
+      emissiveIntensity: 0.35,
+    }),
+    krackenJaw: flat(KRACKEN_JAW_COLOR, { emissive: KRACKEN_JAW_COLOR, emissiveIntensity: 1.1, roughness: 0.6 }),
+    krackenEye: flat(KRACKEN_EYE_COLOR, { emissive: KRACKEN_EYE_COLOR, emissiveIntensity: 2.6, roughness: 0.3 }),
+    krackenTentacleBody: flat(KRACKEN_TENTACLE_BODY_COLOR, { roughness: 0.75 }),
+    krackenTentacleSucker: flat(KRACKEN_TENTACLE_SUCKER_COLOR, {
+      emissive: KRACKEN_TENTACLE_SUCKER_COLOR,
+      emissiveIntensity: 0.8,
+      roughness: 0.6,
+    }),
     // Normal (not additive) blending: the water background is often bright,
     // not black, and additive blending on a near-opaque sprite just clips
     // straight to white against it, erasing the color entirely. Plain alpha
@@ -267,6 +300,8 @@ function makeMaterials(p: Palette): Materials {
     powerupLaserGlow: flat(p.powerupLaserGlow, { emissive: p.powerupLaserGlow, emissiveIntensity: 2.2 }),
     powerupHealthBody: flat(p.powerupHealthBody, { roughness: 0.55, metalness: 0.2 }),
     powerupHealthGlow: flat(p.powerupHealthGlow, { emissive: p.powerupHealthGlow, emissiveIntensity: 1.6 }),
+    powerupExtraLifeBody: flat(p.powerupExtraLifeBody, { roughness: 0.4, metalness: 0.3 }),
+    powerupExtraLifeGlow: flat(p.powerupExtraLifeGlow, { emissive: p.powerupExtraLifeGlow, emissiveIntensity: 2 }),
     laserBeamCore: new THREE.MeshBasicMaterial({ color: p.laserBeamCore, transparent: true, opacity: 0 }),
     laserBeamGlow: new THREE.MeshBasicMaterial({ color: p.laserBeamGlow, transparent: true, opacity: 0 }),
     eyeWhite: flat(0xffffff, { roughness: 0.3 }),
@@ -315,6 +350,9 @@ function applyPalette(m: Materials, p: Palette) {
   m.powerupHealthBody.color.setHex(p.powerupHealthBody)
   m.powerupHealthGlow.color.setHex(p.powerupHealthGlow)
   m.powerupHealthGlow.emissive.setHex(p.powerupHealthGlow)
+  m.powerupExtraLifeBody.color.setHex(p.powerupExtraLifeBody)
+  m.powerupExtraLifeGlow.color.setHex(p.powerupExtraLifeGlow)
+  m.powerupExtraLifeGlow.emissive.setHex(p.powerupExtraLifeGlow)
   m.laserBeamCore.color.setHex(p.laserBeamCore)
   m.laserBeamGlow.color.setHex(p.laserBeamGlow)
   m.bubble.color.setHex(p.bubble)
@@ -718,12 +756,23 @@ interface BossView {
   /** A group (jaw + teeth together) so opening it is a single scale. */
   mouth: THREE.Group
   tentacles: THREE.Group[]
+  /** Whichever eye material this view was built with — the eye-pulse tween
+   *  targets this directly so a Kracken view pulses its own orange eyes,
+   *  not the normal boss's red ones. */
+  eyeMaterial: THREE.MeshStandardMaterial
+  variant: BossVariant
 }
 
 /** A short tapering chain of cylinder segments, the same construction as
  *  the hazard tentacle's, curling out from `origin` in direction `dir` and
  *  gently arcing toward -z so it reads as trailing into the background. */
-function buildDecorativeTentacle(m: Materials, origin: THREE.Vector3, dir: THREE.Vector2, rand: () => number): THREE.Group {
+function buildDecorativeTentacle(
+  bodyMat: THREE.MeshStandardMaterial,
+  suckerMat: THREE.MeshStandardMaterial,
+  origin: THREE.Vector3,
+  dir: THREE.Vector2,
+  rand: () => number,
+): THREE.Group {
   const group = new THREE.Group()
   const SEGMENTS = 5
   const length = 60 + rand() * 20
@@ -742,12 +791,12 @@ function buildDecorativeTentacle(m: Materials, origin: THREE.Vector3, dir: THREE
     const mid = a.clone().add(b).multiplyScalar(0.5)
     const len = a.distanceTo(b)
     const rTop = 8 * (1 - i / SEGMENTS) + 2
-    const seg = new THREE.Mesh(new THREE.CylinderGeometry(rTop * 0.6, rTop * 0.45, len * 1.15, 6), m.tentacleBody)
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(rTop * 0.6, rTop * 0.45, len * 1.15, 6), bodyMat)
     seg.position.copy(mid)
     seg.quaternion.setFromUnitVectors(upAxis, b.clone().sub(a).normalize())
     group.add(seg)
     if (i % 2 === 1) {
-      const sucker = new THREE.Mesh(new THREE.SphereGeometry(rTop * 0.3, 6, 5), m.tentacleSucker)
+      const sucker = new THREE.Mesh(new THREE.SphereGeometry(rTop * 0.3, 6, 5), suckerMat)
       sucker.position.copy(mid).add(new THREE.Vector3(0, 0, rTop * 0.5))
       group.add(sucker)
     }
@@ -756,16 +805,27 @@ function buildDecorativeTentacle(m: Materials, origin: THREE.Vector3, dir: THREE
 }
 
 const BOSS_TENTACLE_COUNT = 6
+// "Many more" tendrils than the normal boss's six, and denser along the
+// same span so the Kracken reads as a much busier, more overwhelming
+// silhouette rather than just a recolor.
+const KRACKEN_TENTACLE_COUNT = 16
 
-function buildBossView(m: Materials): BossView {
+function buildBossView(m: Materials, variant: BossVariant): BossView {
   const group = new THREE.Group()
   const rand = seededRandom(1)
   const halfSpan = BOSS_SPAN / 2
+  const isKracken = variant === 'kracken'
+  const bodyMat = isKracken ? m.krackenBody : m.bossBody
+  const jawMat = isKracken ? m.krackenJaw : m.bossJaw
+  const eyeMat = isKracken ? m.krackenEye : m.bossEye
+  const tentacleBodyMat = isKracken ? m.krackenTentacleBody : m.tentacleBody
+  const tentacleSuckerMat = isKracken ? m.krackenTentacleSucker : m.tentacleSucker
+  const tentacleCount = isKracken ? KRACKEN_TENTACLE_COUNT : BOSS_TENTACLE_COUNT
 
   // The body itself stays implied — a vast dark mass wider than the visible
   // board, mostly off the bottom edge, the same "only what breaks the
   // surface is modeled" trick the hazard tentacle's Loch-Ness body uses.
-  const mass = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), m.bossBody)
+  const mass = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), bodyMat)
   mass.scale.set(halfSpan * 1.05, 46, 30)
   mass.position.set(0, -10, -14)
   group.add(mass)
@@ -774,7 +834,7 @@ function buildBossView(m: Materials): BossView {
   // opening it (scale.x/scale.y grow in updateBoss) moves everything
   // together — teeth included, purely decorative, never part of collision.
   const mouth = new THREE.Group()
-  const jaw = new THREE.Mesh(new THREE.BoxGeometry(BOSS_MOUTH_MAX_WIDTH, 34, 22), m.bossJaw)
+  const jaw = new THREE.Mesh(new THREE.BoxGeometry(BOSS_MOUTH_MAX_WIDTH, 34, 22), jawMat)
   mouth.add(jaw)
   const toothGeo = new THREE.ConeGeometry(5, 14, 4)
   const toothCount = 11
@@ -792,28 +852,28 @@ function buildBossView(m: Materials): BossView {
   mouth.scale.set(0.08, 0.25, 0.85)
   group.add(mouth)
 
-  // Large glowing dark-red eyes, out near the left and right edges of the
-  // board rather than close together on a compact head.
+  // Large glowing eyes, out near the left and right edges of the board
+  // rather than close together on a compact head.
   for (const s of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.IcosahedronGeometry(15, 1), m.bossEye)
+    const eye = new THREE.Mesh(new THREE.IcosahedronGeometry(15, 1), eyeMat)
     eye.position.set(s * (halfSpan - 24), 30, 6)
     group.add(eye)
   }
 
-  // Six decorative tentacles branching off the mass, spread across its
-  // width and trailing into the background — never part of collision.
+  // Decorative tentacles branching off the mass, spread across its width
+  // and trailing into the background — never part of collision.
   const tentacles: THREE.Group[] = []
-  for (let i = 0; i < BOSS_TENTACLE_COUNT; i++) {
-    const t = i / (BOSS_TENTACLE_COUNT - 1)
+  for (let i = 0; i < tentacleCount; i++) {
+    const t = i / (tentacleCount - 1)
     const originX = -halfSpan * 0.85 + t * halfSpan * 1.7
     const origin = new THREE.Vector3(originX, -4 + (i % 2 === 0 ? 10 : -6), -6)
     const dir = new THREE.Vector2(Math.sin((t - 0.5) * 1.4) * 0.6, 0.55 + (i % 2) * 0.3)
-    const tentacle = buildDecorativeTentacle(m, origin, dir, rand)
+    const tentacle = buildDecorativeTentacle(tentacleBodyMat, tentacleSuckerMat, origin, dir, rand)
     group.add(tentacle)
     tentacles.push(tentacle)
   }
 
-  return { group, mouth, tentacles }
+  return { group, mouth, tentacles, eyeMaterial: eyeMat, variant }
 }
 
 /* ---------------------------------------------------------------
@@ -863,9 +923,29 @@ function buildHealthPickup(m: Materials): THREE.Group {
   return g
 }
 
+/** A five-pointed star, arcade-1UP style — the uncapped bonus-life pickup,
+ *  visually distinct from the capped health crate rather than just a
+ *  recolor of it. */
+function buildExtraLifePickup(m: Materials): THREE.Group {
+  const g = new THREE.Group()
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(6, 0), m.powerupExtraLifeGlow)
+  g.add(core)
+  const pointCount = 5
+  for (let i = 0; i < pointCount; i++) {
+    const a = (i / pointCount) * Math.PI * 2 - Math.PI / 2
+    const dir = new THREE.Vector3(Math.cos(a), Math.sin(a), 0)
+    const point = new THREE.Mesh(new THREE.ConeGeometry(3.4, 13, 4), m.powerupExtraLifeBody)
+    point.position.copy(dir).multiplyScalar(7)
+    point.quaternion.setFromUnitVectors(upAxis, dir)
+    g.add(point)
+  }
+  return g
+}
+
 function buildPowerupView(type: PowerupType, m: Materials): THREE.Group {
   if (type === 'shotgun') return buildShotgunPickup(m)
   if (type === 'health') return buildHealthPickup(m)
+  if (type === 'extraLife') return buildExtraLifePickup(m)
   return buildLaserPickup(m)
 }
 
@@ -1194,8 +1274,16 @@ export class Scene3D {
       }
       return
     }
-    if (!this.bossView) {
-      this.bossView = buildBossView(this.materials)
+    // Rebuild (not just reposition) if the variant changed — e.g. a normal
+    // fight's view is still around when a Kracken encounter starts.
+    if (!this.bossView || this.bossView.variant !== boss.variant) {
+      if (this.bossView) {
+        this.scene.remove(this.bossView.group)
+        this.bossView.group.traverse((child) => {
+          if (child instanceof THREE.Mesh) child.geometry.dispose()
+        })
+      }
+      this.bossView = buildBossView(this.materials, boss.variant)
       this.scene.add(this.bossView.group)
     }
     const view = this.bossView
@@ -1213,7 +1301,7 @@ export class Scene3D {
     view.mouth.scale.y = 0.25 + openK * 0.75
 
     const pulse = 1.8 + Math.sin(now * 3) * 0.5 + openK * 1.4
-    this.materials.bossEye.emissiveIntensity = pulse
+    view.eyeMaterial.emissiveIntensity = pulse
 
     view.tentacles.forEach((tentacle, i) => {
       tentacle.rotation.z = Math.sin(now * 0.7 + i * 1.3) * 0.18

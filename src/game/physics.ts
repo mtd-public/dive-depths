@@ -91,18 +91,29 @@ const FORMATION_DY = 60
 
 // Boss encounters: `depth` already drives difficulty scaling and climbs by
 // a couple hundred units a second, so a milestone counted directly in that
-// unit would fire every few seconds. `metersForDepth` rescales it into a
+// unit would fire every few seconds. `leaguesForDepth` rescales it into a
 // much coarser "distance" purely for pacing the boss cadence and for the
 // number the player sees — about a minute of normal diving between fights.
 // An integer divisor, not a 0.1 multiplier — dividing by 10 keeps the
 // post-boss depth reset (below) exact, where multiplying by a fractional
 // 0.1 constant would round-trip through floating-point error and land the
-// "distance" a meter short of where cleared + 1 should put it.
-const DEPTH_PER_METER = 10
-const BOSS_INTERVAL_METERS = 1000
-export function metersForDepth(depth: number): number {
-  return Math.floor(depth / DEPTH_PER_METER)
+// "distance" a league short of where cleared + 1 should put it.
+const DEPTH_PER_LEAGUE = 10
+const BOSS_INTERVAL_LEAGUES = 1000
+export function leaguesForDepth(depth: number): number {
+  return Math.floor(depth / DEPTH_PER_LEAGUE)
 }
+
+// The Kracken: a special orange variant of the boss, guaranteed at 20,000
+// leagues and on every boss encounter past it — a much tougher, richer
+// encounter than a normal fight, and the game's win condition rather than
+// just another milestone. Set true so the very first boss fight (at
+// BOSS_INTERVAL_LEAGUES) swaps in a Kracken for testing purposes; flip to
+// false once the real 20,000-league encounter no longer needs a shortcut.
+export const KRACKEN_TEST_AS_FIRST_BOSS = true
+export const KRACKEN_LEAGUES = 20000
+const KRACKEN_HP = 40
+const KRACKEN_KILL_POINTS = 1000
 
 // The boss holds low on the board — a vast, mostly-submerged creature
 // rather than something that swims up to meet the sub — but not so low
@@ -131,7 +142,15 @@ const BOSS_MINE_COLS = 3
 const BOSS_MINE_COL_SPACING = 100
 const BOSS_MINE_ROW_SPACING = 90
 
+// The Kracken fight throws the player a lot more of a lifeline than a
+// normal boss does — the fight is longer (40 hp vs 15-20) and otherwise
+// suppresses power-up spawning entirely like any boss, so it spawns its
+// own steady drip of pickups on a short timer instead.
+const KRACKEN_POWERUP_MIN = 2.5
+const KRACKEN_POWERUP_MAX = 4
+
 export type BossPhase = 'entering' | 'fighting' | 'exploding'
+export type BossVariant = 'normal' | 'kracken'
 
 export interface Boss {
   id: number
@@ -145,6 +164,9 @@ export interface Boss {
   /** Counts down from BOSS_MOUTH_OPEN_TIME whenever it just spat a squad —
    *  purely a visual telegraph for the scene to animate the jaw with. */
   mouthOpenT: number
+  variant: BossVariant
+  /** Kracken only: counts down to the next bonus power-up spawn. */
+  powerupIn: number
 }
 
 export type ThreatType = 'fish' | 'monster' | 'sub' | 'mine' | 'tentacle'
@@ -197,7 +219,7 @@ export interface Projectile {
   kind: 'sub' | 'mine'
 }
 
-export type PowerupType = 'shotgun' | 'laser' | 'health'
+export type PowerupType = 'shotgun' | 'laser' | 'health' | 'extraLife'
 
 export interface Powerup {
   id: number
@@ -238,9 +260,15 @@ export interface World {
   depth: number
   elapsed: number
   collided: boolean
+  /** Set once the Kracken is defeated — freezes step() like `collided` does,
+   *  but drives a win screen instead of a game-over one. */
+  gameWon: boolean
   boss: Boss | null
-  /** Meters (see metersForDepth) at which the next boss fight triggers. */
-  nextBossMeters: number
+  /** How many boss fights have started this run — used only to gate
+   *  KRACKEN_TEST_AS_FIRST_BOSS to the very first one. */
+  bossCount: number
+  /** Leagues (see leaguesForDepth) at which the next boss fight triggers. */
+  nextBossLeagues: number
   /** Append-only: kill/hit/blast/pickup events for the scene to react to.
    *  The renderer runs its own rAF loop, so it drains this incrementally
    *  (tracking how much it has already consumed) rather than the step
@@ -272,8 +300,10 @@ export function createWorld(): World {
     depth: 0,
     elapsed: 0,
     collided: false,
+    gameWon: false,
     boss: null,
-    nextBossMeters: BOSS_INTERVAL_METERS,
+    bossCount: 0,
+    nextBossLeagues: BOSS_INTERVAL_LEAGUES,
     effects: [],
   }
 }
@@ -398,13 +428,31 @@ function spawnFormation(world: World, type: 'fish' | 'sub' | 'mine') {
 
 function pickPowerupType(): PowerupType {
   const r = Math.random()
-  if (r < 0.42) return 'shotgun'
-  if (r < 0.82) return 'health'
-  return 'laser'
+  if (r < 0.4) return 'shotgun'
+  if (r < 0.78) return 'health'
+  if (r < 0.95) return 'laser'
+  return 'extraLife'
 }
 
 function spawnPowerup(world: World) {
   const type = pickPowerupType()
+  const x = THREAT_MARGIN + POWERUP_R + Math.random() * (BOARD_W - (THREAT_MARGIN + POWERUP_R) * 2)
+  world.powerups.push({ id: world.nextId++, type, x, y: BOARD_H + SPAWN_MARGIN })
+}
+
+/** The Kracken's own richer pool, skewed hard toward health and extra lives
+ *  rather than the general pool's mostly-shotgun mix — "lots of health and
+ *  power ups" for a fight that's otherwise much tougher than a normal one. */
+function pickKrackenPowerupType(): PowerupType {
+  const r = Math.random()
+  if (r < 0.45) return 'health'
+  if (r < 0.65) return 'extraLife'
+  if (r < 0.85) return 'shotgun'
+  return 'laser'
+}
+
+function spawnKrackenPowerup(world: World) {
+  const type = pickKrackenPowerupType()
   const x = THREAT_MARGIN + POWERUP_R + Math.random() * (BOARD_W - (THREAT_MARGIN + POWERUP_R) * 2)
   world.powerups.push({ id: world.nextId++, type, x, y: BOARD_H + SPAWN_MARGIN })
 }
@@ -484,7 +532,11 @@ function spawnBoss(world: World) {
   world.threats = []
   world.projectiles = []
   world.powerups = []
-  const hp = BOSS_HP_MIN + Math.floor(Math.random() * (BOSS_HP_MAX - BOSS_HP_MIN + 1))
+  const isFirstBoss = world.bossCount === 0
+  const variant: BossVariant =
+    (KRACKEN_TEST_AS_FIRST_BOSS && isFirstBoss) || world.nextBossLeagues >= KRACKEN_LEAGUES ? 'kracken' : 'normal'
+  world.bossCount += 1
+  const hp = variant === 'kracken' ? KRACKEN_HP : BOSS_HP_MIN + Math.floor(Math.random() * (BOSS_HP_MAX - BOSS_HP_MIN + 1))
   world.boss = {
     id: world.nextId++,
     x: BOARD_W / 2,
@@ -495,6 +547,9 @@ function spawnBoss(world: World) {
     phaseT: 0,
     attackIn: BOSS_ATTACK_MIN + Math.random() * (BOSS_ATTACK_MAX - BOSS_ATTACK_MIN),
     mouthOpenT: 0,
+    variant,
+    powerupIn:
+      variant === 'kracken' ? KRACKEN_POWERUP_MIN + Math.random() * (KRACKEN_POWERUP_MAX - KRACKEN_POWERUP_MIN) : 0,
   }
 }
 
@@ -551,22 +606,32 @@ function updateBoss(world: World, dt: number) {
       boss.mouthOpenT = BOSS_MOUTH_OPEN_TIME
       boss.attackIn = BOSS_ATTACK_MIN + Math.random() * (BOSS_ATTACK_MAX - BOSS_ATTACK_MIN)
     }
+    if (boss.variant === 'kracken') {
+      boss.powerupIn -= dt
+      if (boss.powerupIn <= 0) {
+        spawnKrackenPowerup(world)
+        boss.powerupIn = KRACKEN_POWERUP_MIN + Math.random() * (KRACKEN_POWERUP_MAX - KRACKEN_POWERUP_MIN)
+      }
+    }
     return
   }
 
   // 'exploding': held just long enough for the scene to play the death
   // burst, then gone — and diving resumes just past the milestone it took,
   // not back at it, so the same distance doesn't immediately trigger again.
+  // Defeating the Kracken — in the test-toggle first fight or the real
+  // 20,000-league one — wins the game outright, in any instance.
   if (boss.phaseT >= BOSS_EXPLODE_TIME) {
-    const cleared = world.nextBossMeters
-    world.nextBossMeters += BOSS_INTERVAL_METERS
-    world.depth = (cleared + 1) * DEPTH_PER_METER
+    const cleared = world.nextBossLeagues
+    world.nextBossLeagues += BOSS_INTERVAL_LEAGUES
+    world.depth = (cleared + 1) * DEPTH_PER_LEAGUE
+    if (boss.variant === 'kracken') world.gameWon = true
     world.boss = null
   }
 }
 
 export function step(world: World, dt: number, input: { fire: boolean }) {
-  if (world.collided) return
+  if (world.collided || world.gameWon) return
 
   world.elapsed += dt
 
@@ -585,7 +650,7 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   const speed = speedForDepth(world.depth)
   if (!world.boss) {
     world.depth += speed * dt
-    if (metersForDepth(world.depth) >= world.nextBossMeters) spawnBoss(world)
+    if (leaguesForDepth(world.depth) >= world.nextBossLeagues) spawnBoss(world)
   }
 
   // --- firing: the ultimate takes priority, then the shotgun buff -----------
@@ -677,6 +742,10 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
         world.weaponModeT = SHOTGUN_DURATION
       } else if (powerup.type === 'laser') {
         world.laserCharges = Math.min(1, world.laserCharges + 1)
+      } else if (powerup.type === 'extraLife') {
+        // Uncapped, unlike a health refill — a genuine bonus life rather
+        // than topping off the existing pool back up to LIVES_MAX.
+        world.lives += 1
       } else {
         world.lives = Math.min(LIVES_MAX, world.lives + 1)
       }
@@ -697,7 +766,7 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
       if (world.boss.hp <= 0) {
         world.boss.phase = 'exploding'
         world.boss.phaseT = 0
-        world.killPoints += BOSS_KILL_POINTS
+        world.killPoints += world.boss.variant === 'kracken' ? KRACKEN_KILL_POINTS : BOSS_KILL_POINTS
         world.effects.push({ x: world.boss.x, y: world.boss.y, kind: 'blast' })
       }
       continue
