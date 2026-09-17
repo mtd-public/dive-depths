@@ -238,16 +238,22 @@ button {
   line-height: 1.1;
 }
 
-/* ---------- Weapon badge: mirrors the depth badge, opposite corner ---------- */
+/* ---------- Weapon badge: follows the sub's x, sits just above it ----------
+   `top` is fixed at the sub's screen row (SUB_Y / BOARD_H in physics.ts,
+   22%) minus enough to clear the hull; `left` is a percentage set every
+   frame in WeaponBadge.tsx from the sub's actual x, with the translateX
+   here centering the badge on that point rather than anchoring an edge. */
 .weapon-badge {
   position: absolute;
-  top: calc(10px + env(safe-area-inset-top, 0px));
-  left: 10px;
+  top: calc(22% - 46px);
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 3px;
   pointer-events: none;
+  white-space: nowrap;
 }
 
 .weapon-badge__row {
@@ -506,8 +512,7 @@ button {
     box-shadow: 0 1px 2px rgba(20, 22, 30, 0.05), 0 12px 32px -12px rgba(20, 22, 30, 0.25);
   }
 
-  .depth-badge,
-  .weapon-badge {
+  .depth-badge {
     top: 10px;
   }
 

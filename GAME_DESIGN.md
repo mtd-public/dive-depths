@@ -395,3 +395,32 @@ A further round, on branch `feature/tap-fire-swipe-steer`:
   charged-glow keyframe that animated them). A mouse click-and-drag on
   desktop works the same way a touch swipe/tap does, since both ride the
   same pointer events — no separate desktop control was needed.
+
+## Shorter ultimate, a badge that follows the sub, tighter lights, lit enemy subs
+
+A further round, on branch `feature/light-tuning-badge-follow`:
+
+- **`LASER_DURATION` cut from 15s to 5s.** Same continuous, sub-tracking,
+  double-width beam as before, just a shorter commitment.
+- **The shotgun/ultimate status badge now follows the sub instead of
+  sitting fixed in the top-left corner.** It moved out of `App.tsx` into
+  its own `WeaponBadge` component, which reads `world.current.subX`
+  directly in its own `requestAnimationFrame` loop — the same pattern
+  `GameCanvas` already uses to stay smooth without waiting on React state —
+  and writes the result straight to the badge's `style.left` as a
+  percentage of `BOARD_W`. `top` stays a fixed `22%` (the sub's constant
+  screen row, `SUB_Y / BOARD_H` from physics.ts) minus enough to clear the
+  hull, and a `translateX(-50%)` centers the badge on that x rather than
+  anchoring an edge to it.
+- **The sub's visible light circle shrunk** — the glow plane went from
+  190×190 to 120×120, and the two point lights' falloff distances came in
+  with it (headlight 220→140, beacon 340→200) so the actual illumination
+  doesn't reach further than the visible glow does.
+- **Enemy subs now cast real light, not just glowing lamp meshes.** A
+  `PointLight` colored from the same `enemySubLight` material as their
+  existing lamp geometry sits between the two lamps, modest next to the
+  player's own lights (intensity 1.2, distance 90). Its color is read once
+  at build time rather than kept in sync with the palette afterward — a
+  threat is only ever on screen for a few seconds, so the depth the
+  palette was at when it spawned is close enough for its whole life,
+  and it avoids adding a new per-frame sync path to `syncThreats` for it.
