@@ -313,7 +313,7 @@ function buildSub(m: Materials): Sub {
   root.add(headlight)
   // The headlight is a real light too, not just a glowing mesh — it casts
   // a pool of light on the water and anything drifting below the sub.
-  const headlightLight = new THREE.PointLight(0xffffff, 1, 220, 1.6)
+  const headlightLight = new THREE.PointLight(0xffffff, 1, 140, 1.6)
   headlightLight.position.set(8, -16, 0)
   root.add(headlightLight)
 
@@ -323,15 +323,17 @@ function buildSub(m: Materials): Sub {
   const beaconBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(2.4, 0), m.subGlow)
   beaconBulb.position.set(-2, 23.4, 0)
   root.add(beaconBulb)
-  const beaconLight = new THREE.PointLight(0xffffff, 0.6, 340, 1.6)
+  const beaconLight = new THREE.PointLight(0xffffff, 0.6, 200, 1.6)
   beaconLight.position.set(-2, 24, 0)
   root.add(beaconLight)
 
-  // The light source around the sub, made visible: a large soft circle
-  // (not just the invisible falloff of the point lights above) sitting
-  // behind the hull so the sub reads as sitting inside its own light pool.
+  // The light source around the sub, made visible: a soft circle (not just
+  // the invisible falloff of the point lights above) sitting behind the
+  // hull so the sub reads as sitting inside its own light pool. Sized down
+  // from an earlier, much larger pass — a tighter radius reads as "the
+  // sub's own light" rather than lighting up half the board.
   const glowDisc = new THREE.Mesh(
-    new THREE.PlaneGeometry(190, 190),
+    new THREE.PlaneGeometry(120, 120),
     new THREE.MeshBasicMaterial({
       map: radialGlowTexture(0xffffff),
       color: 0xfff8dc,
@@ -498,6 +500,15 @@ function buildEnemySubView(m: Materials, rand: () => number): ThreatView {
     light.position.set(-13, 1, s * 6.6)
     group.add(light)
   }
+  // A real light too, not just the glowing lamp meshes — modest next to the
+  // player's own lights, but enough that an enemy sub casts visible light on
+  // the water around it, especially once it's dark. Color is read from the
+  // material at build time rather than kept in sync with the palette after
+  // that; a threat is only ever on screen for a few seconds, so the depth
+  // the palette was at when it spawned is close enough for its whole life.
+  const subLight = new THREE.PointLight(m.enemySubLight.color.getHex(), 1.2, 90, 1.8)
+  subLight.position.set(-13, 1, 0)
+  group.add(subLight)
 
   return { group, kind: 'sub', spin: 0, phase: rand() * Math.PI * 2 }
 }

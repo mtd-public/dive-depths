@@ -2,6 +2,7 @@ import { GameCanvas } from './components/GameCanvas'
 import { GameOverlay } from './components/GameOverlay'
 import { KeyboardHelp } from './components/KeyboardHelp'
 import { StatsSidebar } from './components/StatsSidebar'
+import { WeaponBadge } from './components/WeaponBadge'
 import { useGameEngine } from './game/useGameEngine'
 import { useBoardControls } from './hooks/useBoardControls'
 
@@ -41,18 +42,12 @@ export default function App() {
             <span className="depth-badge__label">Depth</span>
             <span className="depth-badge__value">{state.depthLevel}</span>
           </div>
-          {(state.shotgunT > 0 || state.laserReady || state.laserActiveT > 0) && (
-            <div className="weapon-badge">
-              {state.laserActiveT > 0 ? (
-                <span className="weapon-badge__row weapon-badge__row--laser">Ultimate firing {state.laserActiveT}s</span>
-              ) : (
-                state.laserReady && <span className="weapon-badge__row weapon-badge__row--laser">Ultimate ready</span>
-              )}
-              {state.shotgunT > 0 && (
-                <span className="weapon-badge__row weapon-badge__row--shotgun">Shotgun {state.shotgunT}s</span>
-              )}
-            </div>
-          )}
+          <WeaponBadge
+            world={world}
+            shotgunT={state.shotgunT}
+            laserReady={state.laserReady}
+            laserActiveT={state.laserActiveT}
+          />
           <GameOverlay
             phase={state.phase}
             score={state.score}

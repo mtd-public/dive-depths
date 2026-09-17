@@ -55,7 +55,7 @@ const SHOTGUN_SPREAD_VX = 240
 // tracks the sub's x every frame and keeps sweeping for its full duration,
 // so the player can steer it across the board rather than committing to one
 // spot. Twice the width of a first pass at this (50% of the board, not 25%).
-export const LASER_DURATION = 15
+export const LASER_DURATION = 5
 const LASER_COOLDOWN = 0.6
 export const LASER_HALF_WIDTH = BOARD_W * 0.5 * 0.5
 
