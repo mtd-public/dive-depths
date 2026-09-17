@@ -3,7 +3,10 @@ import {
   BOARD_H,
   BOARD_W,
   BOSS_EXPLODE_TIME,
+  HIT_OFFSET_Y,
+  HIT_R,
   LASER_HALF_WIDTH,
+  LIVES_MAX,
   SUB_Y,
   type Boss,
   type Effect,
@@ -325,6 +328,14 @@ function applyPalette(m: Materials, p: Palette) {
    stern propeller and a downward headlight, with the lives ring
    mounted on the tower facing the camera.
 --------------------------------------------------------------- */
+// The hull shrunk to half its original size — everything but the light
+// pool disc, which stays full-size so the earlier lighting tuning (a
+// specific glow radius) doesn't shrink along with the now much smaller
+// body. Hazard collision no longer uses this body at all (see the hitbox
+// below); it only governs steering bounds, missile spawn point and
+// power-up pickup range now (SUB_R in physics.ts).
+const SUB_VISUAL_SCALE = 0.5
+
 interface Sub {
   root: THREE.Group
   propeller: THREE.Group
@@ -333,39 +344,43 @@ interface Sub {
   beaconLight: THREE.PointLight
   headlightLight: THREE.PointLight
   glowDisc: THREE.Mesh
+  hitbox: THREE.Mesh
 }
 
 function buildSub(m: Materials): Sub {
   const root = new THREE.Group()
+  const body = new THREE.Group()
+  body.scale.setScalar(SUB_VISUAL_SCALE)
+  root.add(body)
 
   const hull = new THREE.Mesh(new THREE.CapsuleGeometry(11, 28, 4, 10), m.subHull)
   hull.rotation.z = Math.PI / 2
-  root.add(hull)
+  body.add(hull)
 
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(30, 3.4, 4), m.subAccent)
   stripe.position.set(0, -2, 11)
-  root.add(stripe)
+  body.add(stripe)
 
   const tower = new THREE.Mesh(new THREE.BoxGeometry(11, 9, 9), m.subHull)
   tower.position.set(-2, 12, 0)
-  root.add(tower)
+  body.add(tower)
 
   const periscope = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 8, 6), m.subAccent)
   periscope.position.set(-2, 20, 0)
-  root.add(periscope)
+  body.add(periscope)
 
   for (const s of [1, -1]) {
     const plane = new THREE.Mesh(new THREE.BoxGeometry(16, 1.6, 6), m.subAccent)
     plane.position.set(14, -2, s * 12)
     plane.rotation.z = -s * 0.05
-    root.add(plane)
+    body.add(plane)
   }
 
   const tailFin = new THREE.Mesh(new THREE.ConeGeometry(9, 14, 3), m.subHull)
   tailFin.position.set(-24, 6, 0)
   tailFin.rotation.z = Math.PI / 2
   tailFin.scale.z = 0.3
-  root.add(tailFin)
+  body.add(tailFin)
 
   const propeller = new THREE.Group()
   propeller.position.set(-30, -1, 0)
@@ -375,33 +390,42 @@ function buildSub(m: Materials): Sub {
     blade.position.y = 0
     propeller.add(blade)
   }
-  root.add(propeller)
+  body.add(propeller)
 
   const headlight = new THREE.Mesh(new THREE.ConeGeometry(5, 10, 8), m.subGlow)
   headlight.position.set(6, -12, 0)
   headlight.rotation.x = Math.PI
-  root.add(headlight)
+  body.add(headlight)
   // The headlight is a real light too, not just a glowing mesh — it casts
   // a pool of light on the water and anything drifting below the sub.
   const headlightLight = new THREE.PointLight(0xffffff, 1, 140, 1.6)
   headlightLight.position.set(8, -16, 0)
-  root.add(headlightLight)
+  body.add(headlightLight)
 
   // A top-mounted beacon, dim at the sunlit surface — its point light ramps
   // up sharply once the water goes dark, so the sub visibly starts lighting
   // its own way as it enters the depths.
   const beaconBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(2.4, 0), m.subGlow)
   beaconBulb.position.set(-2, 23.4, 0)
-  root.add(beaconBulb)
+  body.add(beaconBulb)
   const beaconLight = new THREE.PointLight(0xffffff, 0.6, 200, 1.6)
   beaconLight.position.set(-2, 24, 0)
-  root.add(beaconLight)
+  body.add(beaconLight)
+
+  const livesRing = makeLivesRing()
+  livesRing.group.position.set(-2, 12, 5)
+  body.add(livesRing.group)
+
+  const shard = makeRingShard()
+  body.add(shard)
 
   // The light source around the sub, made visible: a soft circle (not just
   // the invisible falloff of the point lights above) sitting behind the
   // hull so the sub reads as sitting inside its own light pool. Sized down
   // from an earlier, much larger pass — a tighter radius reads as "the
-  // sub's own light" rather than lighting up half the board.
+  // sub's own light" rather than lighting up half the board. Added to
+  // `root`, not `body`, so it keeps that tuned size regardless of the
+  // body's own scale.
   const glowDisc = new THREE.Mesh(
     new THREE.PlaneGeometry(120, 120),
     new THREE.MeshBasicMaterial({
@@ -416,14 +440,19 @@ function buildSub(m: Materials): Sub {
   glowDisc.position.set(0, 0, -18)
   root.add(glowDisc)
 
-  const livesRing = makeLivesRing()
-  livesRing.group.position.set(-2, 12, 5)
-  root.add(livesRing.group)
+  // The actual damage hitbox, drawn life-size (HIT_R, in board units, not
+  // scaled by SUB_VISUAL_SCALE) at the exact spot physics.ts checks, so
+  // what's drawn is exactly what can get hit — offset toward the bottom of
+  // the now much smaller body, matching HIT_OFFSET_Y. Colored green/yellow
+  // /red by remaining lives in updateSub.
+  const hitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(HIT_R * 2, HIT_R * 2, HIT_R * 1.3),
+    new THREE.MeshBasicMaterial({ color: 0x2ecc71, fog: false }),
+  )
+  hitbox.position.set(0, -HIT_OFFSET_Y, 8)
+  root.add(hitbox)
 
-  const shard = makeRingShard()
-  root.add(shard)
-
-  return { root, propeller, livesRing, shard, beaconLight, headlightLight, glowDisc }
+  return { root, propeller, livesRing, shard, beaconLight, headlightLight, glowDisc, hitbox }
 }
 
 /* ---------------------------------------------------------------
@@ -1228,6 +1257,11 @@ export class Scene3D {
     ;(this.sub.glowDisc.material as THREE.MeshBasicMaterial).opacity = 0.18 + this.depth * this.depth * 0.55
 
     setLivesRing(this.sub.livesRing, world.lives, now)
+
+    // Green while healthy, yellow at half, red once it's really low.
+    const lifeFrac = world.lives / LIVES_MAX
+    const hitboxColor = lifeFrac > 0.66 ? 0x2ecc71 : lifeFrac > 0.33 ? 0xf1c40f : 0xe74c3c
+    ;(this.sub.hitbox.material as THREE.MeshBasicMaterial).color.setHex(hitboxColor)
 
     // Invincibility flash: blink the hull opacity-free via emissive pulse.
     const flashing = world.invincibleT > 0
