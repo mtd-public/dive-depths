@@ -557,3 +557,14 @@ themselves left almost no gaps:
   recolors by remaining lives — green above two-thirds, yellow above a
   third, red below that.
 - **Three more hit points**: `LIVES_MAX` 5 → 8.
+
+## Boss held higher up, on `feature/boss-visibility`
+
+The boss was sitting so low on the board (`BOARD_H - 40`) that on some
+viewport shapes it was barely on screen at all — it still took damage
+correctly (collision is purely numeric, independent of what's visible),
+but players couldn't actually see the fight they were in. `BOSS_Y` moved
+up to `BOARD_H * 0.58`, comfortably inside the camera's visible range
+(`frameCamera` in scene3d.ts) while still holding well below the sub. Its
+mine squads are unaffected — they spawn from the same off-screen edge as
+always, independent of wherever the boss itself sits.
