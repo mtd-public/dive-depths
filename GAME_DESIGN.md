@@ -535,3 +535,25 @@ themselves left almost no gaps:
   of daylight.
 - **Longer gap between volleys** (2.4-3.8s → 3.6-5.5s), so a cleared squad
   doesn't get replaced before the player's had a moment to breathe.
+
+## A small, visible hitbox instead of the whole hull, on `feature/player-hitbox`
+
+- **The sub's body is half its old size.** All of its meshes (hull, tower,
+  periscope, wings, fins, propeller, headlight, beacon, lives ring) now
+  live inside a nested group scaled by `SUB_VISUAL_SCALE` (0.5) — except
+  the light-pool disc, which stays at its previously-tuned full size so
+  shrinking the hull doesn't also shrink the sub's own glow.
+- **Hazard collision no longer uses the hull at all.** A small colored box
+  sits at the bottom-center of the (now much smaller) model — `HIT_R` (4
+  board units) offset down by `HIT_OFFSET_Y` (8) from the sub's row — and
+  every hazard check (threats, enemy/mine fire, tentacles, the boss) tests
+  against that box instead of the old body-sized `SUB_R` circle. Only a
+  hit registering there costs a life; the rest of the hull is now purely
+  cosmetic for collision purposes. `SUB_R` (halved to 10, matching the
+  visual shrink) still governs steering bounds, the missile spawn point,
+  and power-up pickup range — none of which are about taking damage.
+- **The box is drawn at its exact real size and position** (not scaled
+  with the hull), so what's rendered is exactly what can get hit, and it
+  recolors by remaining lives — green above two-thirds, yellow above a
+  third, red below that.
+- **Three more hit points**: `LIVES_MAX` 5 → 8.

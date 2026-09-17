@@ -7,7 +7,19 @@ export const BOARD_W = 400
 export const BOARD_H = 800
 
 export const SUB_Y = BOARD_H * 0.22
-export const SUB_R = 20
+// The sub's overall body — steering bounds, missile spawn point and
+// power-up pickup range all still key off this. Halved along with the
+// visual model (see SUB_VISUAL_SCALE in scene3d.ts) so the invisible
+// bounds actually match the now much smaller hull.
+export const SUB_R = 10
+
+// The player's actual damage hitbox is much smaller than the body and
+// offset toward the bottom of the model — only this small box registers a
+// hazard hit; ramming a threat with the rest of the (now mostly cosmetic)
+// hull no longer costs a life. SUB_R above still governs everything that
+// isn't about taking damage.
+export const HIT_R = 4
+export const HIT_OFFSET_Y = 8
 
 // Steering: a discrete step-and-ease model (prof-whip-dash's lane-switch
 // smoothing), not splashy-fish's current-and-splash velocity model — each
@@ -17,7 +29,7 @@ export const SUB_R = 20
 const STEP = 76
 const STEP_TIME = 0.16
 
-export const LIVES_MAX = 5
+export const LIVES_MAX = 8
 const INVINCIBLE_TIME = 1.5
 
 const FIRE_COOLDOWN = 0.35
@@ -702,24 +714,26 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   if (deadThreats.size) world.threats = world.threats.filter((t) => !deadThreats.has(t.id))
   if (spentMissiles.size) world.missiles = world.missiles.filter((m) => !spentMissiles.has(m.id))
 
-  // --- threat / projectile vs sub --------------------------------------------
+  // --- threat / projectile vs sub: only the small hitbox near the bottom of
+  // the model counts, not the (now mostly cosmetic) full hull -----------------
   if (world.invincibleT <= 0) {
+    const hitY = SUB_Y + HIT_OFFSET_Y
     let hit =
       world.boss !== null &&
       world.boss.phase !== 'exploding' &&
-      circlesOverlap(world.subX, SUB_Y, SUB_R, world.boss.x, world.boss.y, BOSS_R)
+      circlesOverlap(world.subX, hitY, HIT_R, world.boss.x, world.boss.y, BOSS_R)
     for (const threat of world.threats) {
       if (hit) break
       if (threat.type === 'tentacle') {
         const reach = threat.reach ?? 0
-        const yOverlap = Math.abs(SUB_Y - threat.y) < TENTACLE_THICKNESS / 2 + SUB_R
+        const yOverlap = Math.abs(hitY - threat.y) < TENTACLE_THICKNESS / 2 + HIT_R
         if (!yOverlap) continue
-        const xOverlap = threat.side === 'left' ? world.subX - SUB_R < reach : world.subX + SUB_R > BOARD_W - reach
+        const xOverlap = threat.side === 'left' ? world.subX - HIT_R < reach : world.subX + HIT_R > BOARD_W - reach
         if (xOverlap) {
           hit = true
           break
         }
-      } else if (circlesOverlap(world.subX, SUB_Y, SUB_R, threat.x, threat.y, THREAT_SPEC[threat.type].r)) {
+      } else if (circlesOverlap(world.subX, hitY, HIT_R, threat.x, threat.y, THREAT_SPEC[threat.type].r)) {
         deadThreats.add(threat.id)
         hit = true
         break
@@ -730,7 +744,7 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
     if (!hit) {
       for (const projectile of world.projectiles) {
         const pr = projectile.kind === 'mine' ? MINE_BULLET_R : PROJECTILE_R
-        if (circlesOverlap(world.subX, SUB_Y, SUB_R, projectile.x, projectile.y, pr)) {
+        if (circlesOverlap(world.subX, hitY, HIT_R, projectile.x, projectile.y, pr)) {
           world.projectiles = world.projectiles.filter((p) => p.id !== projectile.id)
           hit = true
           break
@@ -741,7 +755,7 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
     if (hit) {
       world.lives -= 1
       world.invincibleT = INVINCIBLE_TIME
-      world.effects.push({ x: world.subX, y: SUB_Y, kind: 'hit' })
+      world.effects.push({ x: world.subX, y: hitY, kind: 'hit' })
       if (world.lives <= 0) world.collided = true
     }
   }
