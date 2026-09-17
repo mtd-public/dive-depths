@@ -142,7 +142,7 @@ const cA = new THREE.Color()
 const cB = new THREE.Color()
 const cOut = new THREE.Color()
 
-function mixHex(a: number, b: number, t: number): number {
+export function mixHex(a: number, b: number, t: number): number {
   cA.setHex(a)
   cB.setHex(b)
   return cOut.copy(cA).lerp(cB, t).getHex()
