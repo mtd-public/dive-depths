@@ -2,7 +2,6 @@ import * as THREE from 'three'
 import {
   BOARD_H,
   BOARD_W,
-  LASER_DURATION,
   LASER_HALF_WIDTH,
   SUB_Y,
   type Effect,
@@ -33,11 +32,17 @@ const LASER_BEAM_CENTER_Y = (LASER_BEAM_TOP + LASER_BEAM_BOTTOM) / 2
 
 const upAxis = new THREE.Vector3(0, 1, 0)
 
-// Every bullet in the game — player missiles, enemy sub fire, mine shrapnel —
-// is a bright orange circle, deliberately depth-invariant (not part of the
-// palette lerp) so a dodgeable projectile always reads clearly.
-const BULLET_CORE_COLOR = 0xff7a1a
-const BULLET_GLOW_COLOR = 0xffb347
+// Every bullet in the game is a bright glowing circle, deliberately
+// depth-invariant (not part of the palette lerp) so a dodgeable projectile
+// always reads clearly — orange for the player's own fire, red for
+// anything fired at them (enemy subs and detonated mines alike), so which
+// bullets are yours is obvious at a glance. The core carries the identity
+// color at full saturation; the halo is a lighter tint of the same hue with
+// additive blending for a genuine glow rather than a flat tinted sphere.
+const PLAYER_BULLET_CORE_COLOR = 0xff8c1a
+const PLAYER_BULLET_GLOW_COLOR = 0xffcf7a
+const ENEMY_BULLET_CORE_COLOR = 0xff2222
+const ENEMY_BULLET_GLOW_COLOR = 0xff7a6b
 
 function seededRandom(seed: number) {
   let s = seed % 2147483647
@@ -87,11 +92,14 @@ interface Materials {
   mineShell: THREE.MeshStandardMaterial
   mineSpike: THREE.MeshStandardMaterial
   mineLamp: THREE.MeshStandardMaterial
-  /** Every bullet — player missiles, enemy sub fire, mine shrapnel — shares
-   *  this pair: bright orange, always at full visibility regardless of
-   *  depth, since a dodgeable projectile has to read clearly at any depth. */
-  bulletCore: THREE.MeshBasicMaterial
-  bulletGlow: THREE.MeshBasicMaterial
+  /** Bullets, split by who fired them — always at full visibility
+   *  regardless of depth, since a dodgeable projectile has to read clearly
+   *  at any depth. Player missiles use the `player*` pair; enemy sub fire
+   *  and mine shrapnel both use `enemy*`, since both are hazards to dodge. */
+  playerBulletCore: THREE.MeshBasicMaterial
+  playerBulletGlow: THREE.MeshBasicMaterial
+  enemyBulletCore: THREE.MeshBasicMaterial
+  enemyBulletGlow: THREE.MeshBasicMaterial
   tentacleBody: THREE.MeshStandardMaterial
   tentacleSucker: THREE.MeshStandardMaterial
   tentacleEyeGlow: THREE.MeshStandardMaterial
@@ -125,8 +133,22 @@ function makeMaterials(p: Palette): Materials {
     mineShell: flat(p.mineShell, { metalness: p.metalness * 0.5, roughness: 0.8 }),
     mineSpike: flat(p.mineSpike, { metalness: p.metalness, roughness: 0.45 }),
     mineLamp: flat(p.mineLamp, { emissive: p.mineLamp, emissiveIntensity: p.mineLampGlow, roughness: 0.4 }),
-    bulletCore: new THREE.MeshBasicMaterial({ color: BULLET_CORE_COLOR }),
-    bulletGlow: new THREE.MeshBasicMaterial({ color: BULLET_GLOW_COLOR, transparent: true, opacity: 0.5 }),
+    playerBulletCore: new THREE.MeshBasicMaterial({ color: PLAYER_BULLET_CORE_COLOR }),
+    playerBulletGlow: new THREE.MeshBasicMaterial({
+      color: PLAYER_BULLET_GLOW_COLOR,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+    enemyBulletCore: new THREE.MeshBasicMaterial({ color: ENEMY_BULLET_CORE_COLOR }),
+    enemyBulletGlow: new THREE.MeshBasicMaterial({
+      color: ENEMY_BULLET_GLOW_COLOR,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
     tentacleBody: flat(p.tentacleBody, { roughness: 0.75 }),
     tentacleSucker: flat(p.tentacleSucker, { roughness: 0.6 }),
     tentacleEyeGlow: flat(p.tentacleEyeGlow, { emissive: p.tentacleEyeGlow, emissiveIntensity: 2.2 }),
@@ -203,6 +225,7 @@ interface Sub {
   livesRing: LivesRing
   shard: THREE.Mesh
   beaconLight: THREE.PointLight
+  headlightLight: THREE.PointLight
 }
 
 function buildSub(m: Materials): Sub {
@@ -251,14 +274,19 @@ function buildSub(m: Materials): Sub {
   headlight.position.set(6, -12, 0)
   headlight.rotation.x = Math.PI
   root.add(headlight)
+  // The headlight is a real light too, not just a glowing mesh — it casts
+  // a pool of light on the water and anything drifting below the sub.
+  const headlightLight = new THREE.PointLight(0xffffff, 1, 220, 1.6)
+  headlightLight.position.set(8, -16, 0)
+  root.add(headlightLight)
 
-  // A top-mounted beacon, dark and unremarkable at the sunlit surface — its
-  // point light only really switches on once the water goes dark, so the
-  // sub visibly starts lighting its own way as it enters the depths.
+  // A top-mounted beacon, dim at the sunlit surface — its point light ramps
+  // up sharply once the water goes dark, so the sub visibly starts lighting
+  // its own way as it enters the depths.
   const beaconBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(2.4, 0), m.subGlow)
   beaconBulb.position.set(-2, 23.4, 0)
   root.add(beaconBulb)
-  const beaconLight = new THREE.PointLight(0xffffff, 0, 260, 2)
+  const beaconLight = new THREE.PointLight(0xffffff, 0.6, 340, 1.6)
   beaconLight.position.set(-2, 24, 0)
   root.add(beaconLight)
 
@@ -269,21 +297,29 @@ function buildSub(m: Materials): Sub {
   const shard = makeRingShard()
   root.add(shard)
 
-  return { root, propeller, livesRing, shard, beaconLight }
+  return { root, propeller, livesRing, shard, beaconLight, headlightLight }
 }
 
 /* ---------------------------------------------------------------
-   Bullets — player missiles, enemy sub fire and mine shrapnel are all the
-   same bright orange circle: a glowing core inside a softer halo. Every
-   dodgeable projectile in the game shares this one look, whatever fired it.
+   Bullets — every dodgeable projectile is a glowing core inside a softer
+   additive halo, orange for the player's own fire and red for anything
+   fired at them (enemy subs and mine shrapnel alike).
 --------------------------------------------------------------- */
-function buildBullet(m: Materials): THREE.Group {
+function buildBulletMesh(core: THREE.MeshBasicMaterial, glow: THREE.MeshBasicMaterial): THREE.Group {
   const g = new THREE.Group()
-  const halo = new THREE.Mesh(new THREE.IcosahedronGeometry(6, 1), m.bulletGlow)
+  const halo = new THREE.Mesh(new THREE.IcosahedronGeometry(7, 1), glow)
   g.add(halo)
-  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(3.2, 1), m.bulletCore)
-  g.add(core)
+  const bulb = new THREE.Mesh(new THREE.IcosahedronGeometry(3.4, 1), core)
+  g.add(bulb)
   return g
+}
+
+function buildPlayerBullet(m: Materials): THREE.Group {
+  return buildBulletMesh(m.playerBulletCore, m.playerBulletGlow)
+}
+
+function buildEnemyBullet(m: Materials): THREE.Group {
+  return buildBulletMesh(m.enemyBulletCore, m.enemyBulletGlow)
 }
 
 /* ---------------------------------------------------------------
@@ -724,6 +760,7 @@ export class Scene3D {
     this.fill.color.setHex(palette.fill.color)
     this.fill.intensity = palette.fill.intensity
     this.sub.beaconLight.color.setHex(palette.subGlow)
+    this.sub.headlightLight.color.setHex(palette.subGlow)
 
     const fog = this.scene.fog as THREE.Fog
     fog.color.setHex(palette.fog.color)
@@ -804,7 +841,7 @@ export class Scene3D {
       seen.add(missile.id)
       let view = this.missileViews.get(missile.id)
       if (!view) {
-        view = buildBullet(this.materials)
+        view = buildPlayerBullet(this.materials)
         this.missileViews.set(missile.id, view)
         this.scene.add(view)
       }
@@ -823,7 +860,7 @@ export class Scene3D {
       seen.add(projectile.id)
       let view = this.projectileViews.get(projectile.id)
       if (!view) {
-        view = buildBullet(this.materials)
+        view = buildEnemyBullet(this.materials)
         this.projectileViews.set(projectile.id, view)
         this.scene.add(view)
       }
@@ -857,16 +894,20 @@ export class Scene3D {
     }
   }
 
-  /** The beam is a fixed box toggled visible and faded by remaining laserT,
-   *  repositioned only on x — see LASER_BEAM_TOP/BOTTOM for why y is fixed. */
-  private updateLaser(world: World) {
+  /** The beam is a fixed box toggled visible and repositioned only on x —
+   *  see LASER_BEAM_TOP/BOTTOM for why y is fixed. It's a sustained 15s
+   *  weapon now, not an instant flash, so it stays at full strength for the
+   *  whole run (with a slight pulse so 15s of it doesn't read as static)
+   *  and only fades in the closing instant rather than dimming throughout. */
+  private updateLaser(world: World, now: number) {
     const active = world.laserT > 0
     this.laserBeam.group.visible = active
     if (!active) return
     this.laserBeam.group.position.set(boardXToWorld(world.laserX), boardYToWorld(LASER_BEAM_CENTER_Y), 26)
-    const k = world.laserT / LASER_DURATION
-    ;(this.laserBeam.core.material as THREE.MeshBasicMaterial).opacity = 0.9 * k
-    ;(this.laserBeam.glow.material as THREE.MeshBasicMaterial).opacity = 0.5 * k
+    const fade = Math.min(1, world.laserT / 0.3)
+    const pulse = 0.85 + Math.sin(now * 18) * 0.15
+    ;(this.laserBeam.core.material as THREE.MeshBasicMaterial).opacity = 0.95 * fade * pulse
+    ;(this.laserBeam.glow.material as THREE.MeshBasicMaterial).opacity = 0.6 * fade * pulse
   }
 
   private updateSub(world: World, phase: GamePhase, dt: number, now: number) {
@@ -881,9 +922,11 @@ export class Scene3D {
 
     this.sub.propeller.rotation.x += dt * 22
 
-    // Dark and unlit at the sunlit surface, a real point light by full depth —
-    // a light source that visibly switches on as the sub enters the depths.
-    this.sub.beaconLight.intensity = this.depth * this.depth * 3.5
+    // Dim at the sunlit surface, blazing by full depth — both lights ramp
+    // up sharply so the sub visibly starts lighting its own way as it
+    // enters the depths, brighter overall than a passing glow would be.
+    this.sub.beaconLight.intensity = 0.6 + this.depth * this.depth * 9
+    this.sub.headlightLight.intensity = 1 + this.depth * this.depth * 6
 
     setLivesRing(this.sub.livesRing, world.lives, now)
 
@@ -960,7 +1003,7 @@ export class Scene3D {
     this.syncMissiles(world)
     this.syncProjectiles(world)
     this.syncPowerups(world, dt, now)
-    this.updateLaser(world)
+    this.updateLaser(world, now)
     this.updateSub(world, phase, dt, now)
     this.updateBubbles(dt, now)
 

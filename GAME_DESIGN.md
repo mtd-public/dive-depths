@@ -308,12 +308,8 @@ above; this section is the delta.
   mines included, cleanly), and **health** (a gear-stamped supply crate
   that restores one hit point, capped at `LIVES_MAX`). All three scroll
   and get picked up like a threat, but never damage the player.
-- **Bullets are one unified bright-orange circle.** Player missiles, enemy
-  sub fire and mine shrapnel all render as the same glowing orange
-  core-plus-halo sphere (`buildBullet`), rather than three different
-  cone/shard shapes in different colors. Anything the player has to dodge
-  or aim reads as "orange circle" at a glance; only power-ups keep distinct
-  shapes/colors, since those are never a collision hazard.
+- **Bullets are glowing circles, colored by who fired them** (revised
+  again below — orange vs. red replaced the original single-color take).
 - **5 lives, not 3**, to better match the added combat surface (dodging
   mine shrapnel and enemy fire on top of steering around terrain).
   `LIVES_MAX` lives in `physics.ts`; `kit.ts`'s hull ring imports it rather
@@ -324,3 +320,48 @@ above; this section is the delta.
   same 0–1 depth fraction the palette lerp uses) into a real `PointLight`
   by the time the water's gone dark, so the sub visibly starts lighting
   its own way as it enters the depths.
+
+## Formations, brighter lighting, and a sustained ultimate
+
+A further round on top of the above, on branch `feature/formations-brightness-tuning`:
+
+- **Diagonal formations**, Galaga/Galaxian-style. `spawnFormation` pushes
+  3–4 same-type threats (fish, enemy subs, or occasionally mines) at once,
+  staggered by a fixed x/y step in a random diagonal direction and clamped
+  so the whole chain stays on the board. Because every threat scrolls at
+  the same shared speed regardless of type, the staggered members keep
+  their relative offsets as they rise — a rigid diagonal translating
+  upward — without any new per-entity state; it's the existing spawn/scroll
+  code, just called several times at once with an offset. A `formationChance`
+  roll (18–40%, rising with depth) picks formation vs. single-threat spawn
+  each spawn tick; single mine/tentacle/monster spawns still happen the
+  usual way.
+- **Both submarine lights brightened substantially** — `subGlowIntensity`
+  in the palette raised (1.4→2.2 at the surface, 2.4→5 in the deep), the
+  beacon `PointLight`'s falloff distance and intensity curve both increased
+  (now `0.6 + depth² × 9`, was `depth² × 3.5`), and the headlight gained an
+  actual `PointLight` of its own (it was only ever a glowing mesh before,
+  casting no real light) at `1 + depth² × 6`. The dark-water case — the one
+  that mattered most — got the largest jump.
+- **Bullets recolored and brightened, split by source.** Player missiles
+  are orange (`playerBulletCore`/`Glow`), enemy sub fire and mine shrapnel
+  are both red (`enemyBulletCore`/`Glow`) — whose bullets are whose is now
+  readable at a glance, which matters more now that formations put several
+  enemy subs on screen at once. Both use additive-blended glow halos around
+  a saturated core rather than a flat semi-transparent sphere, reading as
+  genuinely brighter rather than just differently colored.
+- **Health pickups more common.** Power-up weights shifted from
+  shotgun 45% / health 30% / laser 25% to shotgun 42% / health 40% /
+  laser 18% — health more plentiful, laser rarer to balance its much
+  larger effect (below).
+- **The laser ultimate is now a sustained weapon, not an instant flash.**
+  `LASER_HALF_WIDTH` doubled (25%→50% of board width) and `LASER_DURATION`
+  went from 0.4s to 15s. Critically, `laserX` now tracks `subX` every frame
+  for as long as `laserT > 0` (previously it locked to the sub's position
+  at the moment of firing), so the player steers the beam across the board
+  for the full 15 seconds rather than committing to one spot. The beam's
+  opacity holds near-full strength with a slight sine pulse for the whole
+  duration and only fades in the closing 0.3s, instead of dimming linearly
+  across its (now much longer) lifetime. A `laserActiveT` countdown surfaces
+  in the weapon badge ("Ultimate firing 14s…") and the Fire button reads
+  "Firing…" while it's running.

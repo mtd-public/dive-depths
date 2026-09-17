@@ -51,9 +51,13 @@ const POWERUP_SPACING = 1600
 const SHOTGUN_DURATION = 9
 const SHOTGUN_MISSILE_COUNT = 5
 const SHOTGUN_SPREAD_VX = 240
-export const LASER_DURATION = 0.4
+// The ultimate: a sustained beam, not an instant flash — once triggered it
+// tracks the sub's x every frame and keeps sweeping for its full duration,
+// so the player can steer it across the board rather than committing to one
+// spot. Twice the width of a first pass at this (50% of the board, not 25%).
+export const LASER_DURATION = 15
 const LASER_COOLDOWN = 0.6
-export const LASER_HALF_WIDTH = BOARD_W * 0.25 * 0.5
+export const LASER_HALF_WIDTH = BOARD_W * 0.5 * 0.5
 
 const BASE_SCROLL_SPEED = 170
 const MAX_SCROLL_SPEED = 360
@@ -62,6 +66,16 @@ const SPAWN_SPACING = 260
 const SPAWN_MARGIN = 220
 const CULL_MARGIN = 200
 const THREAT_MARGIN = 30
+
+// Formations: a diagonal chain of same-type threats, spaced so the whole
+// line is visible on screen at once — Galaga/Galaxian-style, adapted for a
+// vertical scroller. They scroll at the same shared speed as everything
+// else, so the diagonal shape holds as the formation rises; the player has
+// to either clear members with missiles or steer around the line.
+const FORMATION_COUNT_MIN = 3
+const FORMATION_COUNT_MAX = 4
+const FORMATION_DX = 50
+const FORMATION_DY = 60
 
 export type ThreatType = 'fish' | 'monster' | 'sub' | 'mine' | 'tentacle'
 
@@ -263,10 +277,54 @@ function spawnThreat(world: World) {
   })
 }
 
+/** More likely with depth, capped so single spawns stay the common case. */
+function formationChance(depth: number) {
+  return Math.min(0.4, 0.18 + depth / 9000)
+}
+
+function pickFormationType(): 'fish' | 'sub' | 'mine' {
+  const r = Math.random()
+  if (r < 0.55) return 'fish'
+  if (r < 0.9) return 'sub'
+  return 'mine'
+}
+
+/** A diagonal chain of `count` same-type threats, staggered in y by
+ *  FORMATION_DY per step so the whole line is on screen together, and in x
+ *  by FORMATION_DX in a random direction — clamped so every member stays
+ *  on the board, which is what leaves a lane to either shoot through or
+ *  steer around. All members scroll at the shared world speed, so the
+ *  diagonal holds its shape as it rises instead of stretching or bunching. */
+function spawnFormation(world: World, type: 'fish' | 'sub' | 'mine') {
+  const spec = THREAT_SPEC[type]
+  const count = FORMATION_COUNT_MIN + Math.floor(Math.random() * (FORMATION_COUNT_MAX - FORMATION_COUNT_MIN + 1))
+  const dir = Math.random() < 0.5 ? 1 : -1
+  const half = spec.r + THREAT_MARGIN
+  const span = FORMATION_DX * (count - 1)
+  const loX = Math.min(0, dir * span)
+  const hiX = Math.max(0, dir * span)
+  const startMin = half - loX
+  const startMax = BOARD_W - half - hiX
+  const startX = startMin + Math.random() * Math.max(1, startMax - startMin)
+
+  for (let i = 0; i < count; i++) {
+    const x = startX + dir * i * FORMATION_DX
+    world.threats.push({
+      id: world.nextId++,
+      type,
+      x,
+      baseX: x,
+      y: BOARD_H + SPAWN_MARGIN + i * FORMATION_DY,
+      phase: Math.random() * Math.PI * 2,
+      fireIn: SUB_FIRE_MIN + Math.random() * (SUB_FIRE_MAX - SUB_FIRE_MIN),
+    })
+  }
+}
+
 function pickPowerupType(): PowerupType {
   const r = Math.random()
-  if (r < 0.45) return 'shotgun'
-  if (r < 0.75) return 'health'
+  if (r < 0.42) return 'shotgun'
+  if (r < 0.82) return 'health'
   return 'laser'
 }
 
@@ -386,7 +444,11 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   world.spawnAccumulator += speed * dt
   if (world.spawnAccumulator >= SPAWN_SPACING) {
     world.spawnAccumulator -= SPAWN_SPACING
-    spawnThreat(world)
+    if (Math.random() < formationChance(world.depth)) {
+      spawnFormation(world, pickFormationType())
+    } else {
+      spawnThreat(world)
+    }
   }
 
   for (const threat of world.threats) {
@@ -404,8 +466,10 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
     }
   }
 
-  // The ultimate gets first crack at anything in its column (a clean kill,
-  // mines included), then whatever mines are left check their own fuse.
+  // The ultimate keeps firing on its own for its full duration, tracking
+  // the sub every frame so the player can sweep it across the board rather
+  // than committing to wherever they were standing when it triggered.
+  if (world.laserT > 0) world.laserX = world.subX
   laserSweep(world)
   detonateFusedMines(world)
 
