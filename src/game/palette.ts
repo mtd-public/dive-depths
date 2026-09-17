@@ -33,10 +33,17 @@ export interface Palette {
   mineSpike: number
   mineLamp: number
   mineLampGlow: number
-  missileBody: number
-  missileGlow: number
-  projectileBody: number
-  projectileGlow: number
+  tentacleBody: number
+  tentacleSucker: number
+  tentacleEyeGlow: number
+  powerupShotgunBody: number
+  powerupShotgunGlow: number
+  powerupLaserBody: number
+  powerupLaserGlow: number
+  powerupHealthBody: number
+  powerupHealthGlow: number
+  laserBeamCore: number
+  laserBeamGlow: number
   explosionCore: number
   explosionSpark: number
   bubble: number
@@ -70,10 +77,17 @@ const SURFACE: Palette = {
   mineSpike: 0xc8a24a,
   mineLamp: 0xff4438,
   mineLampGlow: 1.1,
-  missileBody: 0xf4f7f8,
-  missileGlow: 0xffcf5c,
-  projectileBody: 0x2a2f38,
-  projectileGlow: 0xff3b52,
+  tentacleBody: 0x2c4a3a,
+  tentacleSucker: 0x6fae7a,
+  tentacleEyeGlow: 0xfff275,
+  powerupShotgunBody: 0xffb347,
+  powerupShotgunGlow: 0xffe27a,
+  powerupLaserBody: 0x6fd8ff,
+  powerupLaserGlow: 0xaef9ff,
+  powerupHealthBody: 0x4caf6a,
+  powerupHealthGlow: 0x9dffb8,
+  laserBeamCore: 0xffffff,
+  laserBeamGlow: 0x7ad7ff,
   explosionCore: 0xffe9a8,
   explosionSpark: 0xff7a3a,
   bubble: 0xeaffff,
@@ -107,10 +121,17 @@ const DEEP: Palette = {
   mineSpike: 0x22303c,
   mineLamp: 0xff3b52,
   mineLampGlow: 3,
-  missileBody: 0xd8e4e8,
-  missileGlow: 0xffe27a,
-  projectileBody: 0x11141a,
-  projectileGlow: 0xff2d5c,
+  tentacleBody: 0x0a1710,
+  tentacleSucker: 0x1f3b28,
+  tentacleEyeGlow: 0x9dff5c,
+  powerupShotgunBody: 0xd88a2e,
+  powerupShotgunGlow: 0xffe27a,
+  powerupLaserBody: 0x9a7bff,
+  powerupLaserGlow: 0xd9baff,
+  powerupHealthBody: 0x2f7a48,
+  powerupHealthGlow: 0x6dffa0,
+  laserBeamCore: 0xeaffff,
+  laserBeamGlow: 0xb388ff,
   explosionCore: 0xffe9a8,
   explosionSpark: 0xff5d7a,
   bubble: 0x9ff0ff,
@@ -174,10 +195,17 @@ export function paletteAt(t: number): Palette {
     mineSpike: mixHex(SURFACE.mineSpike, DEEP.mineSpike, k),
     mineLamp: mixHex(SURFACE.mineLamp, DEEP.mineLamp, k),
     mineLampGlow: mix(SURFACE.mineLampGlow, DEEP.mineLampGlow, k),
-    missileBody: mixHex(SURFACE.missileBody, DEEP.missileBody, k),
-    missileGlow: mixHex(SURFACE.missileGlow, DEEP.missileGlow, k),
-    projectileBody: mixHex(SURFACE.projectileBody, DEEP.projectileBody, k),
-    projectileGlow: mixHex(SURFACE.projectileGlow, DEEP.projectileGlow, k),
+    tentacleBody: mixHex(SURFACE.tentacleBody, DEEP.tentacleBody, k),
+    tentacleSucker: mixHex(SURFACE.tentacleSucker, DEEP.tentacleSucker, k),
+    tentacleEyeGlow: mixHex(SURFACE.tentacleEyeGlow, DEEP.tentacleEyeGlow, k),
+    powerupShotgunBody: mixHex(SURFACE.powerupShotgunBody, DEEP.powerupShotgunBody, k),
+    powerupShotgunGlow: mixHex(SURFACE.powerupShotgunGlow, DEEP.powerupShotgunGlow, k),
+    powerupLaserBody: mixHex(SURFACE.powerupLaserBody, DEEP.powerupLaserBody, k),
+    powerupLaserGlow: mixHex(SURFACE.powerupLaserGlow, DEEP.powerupLaserGlow, k),
+    powerupHealthBody: mixHex(SURFACE.powerupHealthBody, DEEP.powerupHealthBody, k),
+    powerupHealthGlow: mixHex(SURFACE.powerupHealthGlow, DEEP.powerupHealthGlow, k),
+    laserBeamCore: mixHex(SURFACE.laserBeamCore, DEEP.laserBeamCore, k),
+    laserBeamGlow: mixHex(SURFACE.laserBeamGlow, DEEP.laserBeamGlow, k),
     explosionCore: mixHex(SURFACE.explosionCore, DEEP.explosionCore, k),
     explosionSpark: mixHex(SURFACE.explosionSpark, DEEP.explosionSpark, k),
     bubble: mixHex(SURFACE.bubble, DEEP.bubble, k),

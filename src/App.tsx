@@ -42,6 +42,14 @@ export default function App() {
             <span className="depth-badge__label">Depth</span>
             <span className="depth-badge__value">{state.depthLevel}</span>
           </div>
+          {(state.shotgunT > 0 || state.laserReady) && (
+            <div className="weapon-badge">
+              {state.laserReady && <span className="weapon-badge__row weapon-badge__row--laser">Ultimate ready</span>}
+              {state.shotgunT > 0 && (
+                <span className="weapon-badge__row weapon-badge__row--shotgun">Shotgun {state.shotgunT}s</span>
+              )}
+            </div>
+          )}
           <GameOverlay
             phase={state.phase}
             score={state.score}
@@ -56,8 +64,8 @@ export default function App() {
               stay out of the board's tap-to-steer handler. */}
           <button
             type="button"
-            className="fire-tap"
-            aria-label="Fire missile"
+            className={`fire-tap${state.laserReady ? ' fire-tap--charged' : ''}`}
+            aria-label={state.laserReady ? 'Fire ultimate beam' : 'Fire missile'}
             disabled={!playable}
             onPointerDown={(e) => e.stopPropagation()}
             onPointerUp={(e) => e.stopPropagation()}
@@ -67,7 +75,7 @@ export default function App() {
             }}
           >
             <span aria-hidden="true">▼</span>
-            Fire
+            {state.laserReady ? 'Ultimate' : 'Fire'}
           </button>
         </div>
 
@@ -75,8 +83,13 @@ export default function App() {
       </main>
 
       <div className="footer-bar">
-        <button type="button" className="btn btn--primary btn--fire" onClick={fire} disabled={!playable}>
-          Fire
+        <button
+          type="button"
+          className={`btn btn--primary btn--fire${state.laserReady ? ' btn--fire--charged' : ''}`}
+          onClick={fire}
+          disabled={!playable}
+        >
+          {state.laserReady ? 'Fire ultimate' : 'Fire'}
         </button>
       </div>
     </div>

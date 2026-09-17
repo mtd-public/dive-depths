@@ -5,6 +5,7 @@
  * one per mesh.
  */
 import * as THREE from 'three'
+import { LIVES_MAX } from './physics'
 
 type MatOpts = { emissive?: number; emissiveIntensity?: number; transparent?: boolean; opacity?: number; roughness?: number; metalness?: number }
 
@@ -54,12 +55,10 @@ export function rnd(seed: number) {
 }
 
 /* --------------------------------------------------------------- hull ring
-   A three-segment ring standing in for the lives counter — mounted on the
-   submarine's hull, visible the whole run the way prof-whip-dash's health
-   ring sits on the Professor's back, so losing a life reads in the world
-   instead of only in a HUD number. */
-
-export const LIVES_MAX = 3
+   A ring standing in for the lives counter — mounted on the submarine's
+   hull, visible the whole run the way prof-whip-dash's health ring sits on
+   the Professor's back, so losing a life reads in the world instead of only
+   in a HUD number. Segment count follows LIVES_MAX from physics.ts. */
 
 export interface LivesRing {
   group: THREE.Group

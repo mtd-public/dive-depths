@@ -279,3 +279,48 @@ weights toward harder obstacle types over time.
    stats, keyboard help).
 8. Tune pacing constants (speeds, spawn spacing, fire cooldowns, step
    size/timing) by playtesting.
+
+## Since the initial build
+
+Implementation and playtesting moved a few mechanics past what's described
+above; this section is the delta.
+
+- **Mines auto-detonate.** Rather than a pure dodge/shoot point hazard, a
+  mine now carries a proximity fuse: once it closes to within a set range
+  of the sub's row it detonates on its own, spraying 8 shrapnel bullets in
+  an even ring (an omnidirectional `Projectile` variant, `kind: 'mine'`,
+  reusing the same 2D-velocity travel and sub-collision code as enemy sub
+  fire). A missile that pops one *before* the fuse triggers is still a
+  clean kill — no spray, just points — so shooting mines early is now a
+  real risk/reward call, not just a bonus.
+- **Tentacles replace the third planned hazard variant.** Instead of
+  reusing splashy-fish's tethered-mine-on-a-chain layout a third time, a
+  new `tentacle` threat reaches in from one wall only (like splashy-fish's
+  obstacle bands, but one-sided) with a Loch-Ness monster's dark,
+  glowing-eyed head implied just off the edge. It's pure terrain — not
+  destroyable by missiles, only by the laser ultimate — and its reach was
+  tuned down after playtesting showed the original 55–72%-of-board-width
+  range ate too much of the playfield; it now spans 32–48%.
+- **Power-ups.** A `powerups[]` array joins `threats[]`: **shotgun** (a
+  timed buff — fire sprays a 5-missile fan instead of one shot), **laser**
+  (a one-shot ultimate — the next fire input sweeps a 25%-of-board-width
+  beam down the screen, destroying everything in its column, tentacles and
+  mines included, cleanly), and **health** (a gear-stamped supply crate
+  that restores one hit point, capped at `LIVES_MAX`). All three scroll
+  and get picked up like a threat, but never damage the player.
+- **Bullets are one unified bright-orange circle.** Player missiles, enemy
+  sub fire and mine shrapnel all render as the same glowing orange
+  core-plus-halo sphere (`buildBullet`), rather than three different
+  cone/shard shapes in different colors. Anything the player has to dodge
+  or aim reads as "orange circle" at a glance; only power-ups keep distinct
+  shapes/colors, since those are never a collision hazard.
+- **5 lives, not 3**, to better match the added combat surface (dodging
+  mine shrapnel and enemy fire on top of steering around terrain).
+  `LIVES_MAX` lives in `physics.ts`; `kit.ts`'s hull ring imports it rather
+  than hard-coding its own segment count, so the two can't drift.
+- **A top-mounted beacon light.** Alongside the existing downward
+  headlight, the sub now carries a second light on top of its conning
+  tower — dark and unremarkable at the sunlit surface, ramping up (via the
+  same 0–1 depth fraction the palette lerp uses) into a real `PointLight`
+  by the time the water's gone dark, so the sub visibly starts lighting
+  its own way as it enters the depths.

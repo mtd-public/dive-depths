@@ -6,4 +6,8 @@ export interface GameState {
   best: number
   lives: number
   depthLevel: number
+  /** Seconds left on the shotgun buff, 0 when not active. */
+  shotgunT: number
+  /** Whether the laser ultimate is charged and ready to fire. */
+  laserReady: boolean
 }

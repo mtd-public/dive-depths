@@ -17,7 +17,7 @@ export const SUB_R = 20
 const STEP = 76
 const STEP_TIME = 0.16
 
-export const LIVES_MAX = 3
+export const LIVES_MAX = 5
 const INVINCIBLE_TIME = 1.5
 
 const FIRE_COOLDOWN = 0.35
@@ -29,6 +29,32 @@ const PROJECTILE_R = 7
 const SUB_FIRE_MIN = 1.6
 const SUB_FIRE_MAX = 3.2
 
+// Mines no longer wait to be bumped into: once one closes to within this
+// many units of the sub's row it auto-detonates and sprays shrapnel in an
+// 8-way ring — a proximity fuse, not a contact fuse. Shooting one first is a
+// clean kill (points, no shrapnel); letting it get close is the risk.
+const MINE_FUSE_RANGE = 230
+const MINE_BULLET_SPEED = 190
+const MINE_BULLET_R = 6
+const MINE_BULLET_COUNT = 8
+
+// Tentacles reach in from one wall only — like splashy-fish's obstacle bands,
+// but one-sided, so there's always clear water on the other edge to dodge
+// into rather than a gap to thread. Kept short: it's a hazard to steer
+// around, not a wall that eats most of the board.
+const TENTACLE_THICKNESS = 90
+const TENTACLE_REACH_MIN = BOARD_W * 0.32
+const TENTACLE_REACH_MAX = BOARD_W * 0.48
+
+const POWERUP_R = 16
+const POWERUP_SPACING = 1600
+const SHOTGUN_DURATION = 9
+const SHOTGUN_MISSILE_COUNT = 5
+const SHOTGUN_SPREAD_VX = 240
+export const LASER_DURATION = 0.4
+const LASER_COOLDOWN = 0.6
+export const LASER_HALF_WIDTH = BOARD_W * 0.25 * 0.5
+
 const BASE_SCROLL_SPEED = 170
 const MAX_SCROLL_SPEED = 360
 const SPEED_GAIN_PER_DEPTH = 0.012
@@ -37,7 +63,7 @@ const SPAWN_MARGIN = 220
 const CULL_MARGIN = 200
 const THREAT_MARGIN = 30
 
-export type ThreatType = 'fish' | 'monster' | 'sub' | 'mine'
+export type ThreatType = 'fish' | 'monster' | 'sub' | 'mine' | 'tentacle'
 
 interface ThreatSpec {
   r: number
@@ -50,6 +76,9 @@ const THREAT_SPEC: Record<ThreatType, ThreatSpec> = {
   monster: { r: 25, points: 12, wander: 20 },
   sub: { r: 22, points: 18, wander: 0 },
   mine: { r: 20, points: 25, wander: 0 },
+  // Not a point hazard — collision uses `side`/`reach` instead of `r`, and
+  // it's only ever destroyed by the laser ultimate, hence the points value.
+  tentacle: { r: 0, points: 20, wander: 0 },
 }
 
 export interface Threat {
@@ -60,27 +89,48 @@ export interface Threat {
   y: number
   phase: number
   fireIn: number
+  /** Tentacle only: which wall it reaches from, and how far across. */
+  side?: 'left' | 'right'
+  reach?: number
 }
 
 export interface Missile {
   id: number
   x: number
   y: number
+  vx: number
+  vy: number
 }
 
 export interface Projectile {
   id: number
   x: number
   y: number
+  vx: number
+  vy: number
+  /** Distinguishes an enemy sub's column fire from a detonated mine's
+   *  omnidirectional shrapnel, so the scene can render them differently. */
+  kind: 'sub' | 'mine'
 }
 
-export type EffectKind = 'hit' | 'kill'
+export type PowerupType = 'shotgun' | 'laser' | 'health'
+
+export interface Powerup {
+  id: number
+  type: PowerupType
+  x: number
+  y: number
+}
+
+export type EffectKind = 'hit' | 'kill' | 'blast' | 'pickup'
 
 export interface Effect {
   x: number
   y: number
   kind: EffectKind
 }
+
+export type WeaponMode = 'normal' | 'shotgun'
 
 export interface World {
   subX: number
@@ -90,17 +140,25 @@ export interface World {
   threats: Threat[]
   missiles: Missile[]
   projectiles: Projectile[]
+  powerups: Powerup[]
+  weaponMode: WeaponMode
+  weaponModeT: number
+  laserCharges: number
+  laserT: number
+  laserX: number
   fireCooldown: number
   spawnAccumulator: number
+  powerupAccumulator: number
   nextId: number
   killPoints: number
   depth: number
   elapsed: number
   collided: boolean
-  /** Append-only: kill/hit events for the scene to react to. The renderer
-   *  runs its own rAF loop, so it drains this incrementally (tracking how
-   *  much it has already consumed) rather than the step clearing it —
-   *  clearing here could race a render frame that hasn't read it yet. */
+  /** Append-only: kill/hit/blast/pickup events for the scene to react to.
+   *  The renderer runs its own rAF loop, so it drains this incrementally
+   *  (tracking how much it has already consumed) rather than the step
+   *  clearing it — clearing here could race a render frame that hasn't
+   *  read it yet. */
   effects: Effect[]
 }
 
@@ -113,8 +171,15 @@ export function createWorld(): World {
     threats: [],
     missiles: [],
     projectiles: [],
+    powerups: [],
+    weaponMode: 'normal',
+    weaponModeT: 0,
+    laserCharges: 0,
+    laserT: 0,
+    laserX: BOARD_W / 2,
     fireCooldown: 0,
     spawnAccumulator: SPAWN_SPACING * 0.5,
+    powerupAccumulator: POWERUP_SPACING * 0.4,
     nextId: 1,
     killPoints: 0,
     depth: 0,
@@ -140,22 +205,25 @@ function speedForDepth(depth: number) {
   return Math.min(MAX_SCROLL_SPEED, BASE_SCROLL_SPEED + depth * SPEED_GAIN_PER_DEPTH)
 }
 
-/** Threat mix skews toward subs and monsters as depth increases. */
+/** Threat mix skews toward subs, monsters and tentacles as depth increases. */
 function weightsForDepth(depth: number) {
   const k = Math.min(1, depth / 3600)
   return {
-    fish: 0.55 - 0.3 * k,
-    monster: 0.05 + 0.2 * k,
-    sub: 0.15 + 0.15 * k,
-    mine: 0.25 + 0.1 * k,
+    fish: 0.5 - 0.27 * k,
+    monster: 0.05 + 0.18 * k,
+    sub: 0.13 + 0.13 * k,
+    mine: 0.17 + 0.08 * k,
+    tentacle: 0.15 + 0.1 * k,
   }
 }
 
+const THREAT_TYPES: ThreatType[] = ['fish', 'monster', 'sub', 'mine', 'tentacle']
+
 function pickThreatType(depth: number): ThreatType {
   const w = weightsForDepth(depth)
-  const total = w.fish + w.monster + w.sub + w.mine
+  const total = THREAT_TYPES.reduce((sum, t) => sum + w[t], 0)
   let r = Math.random() * total
-  for (const type of ['fish', 'monster', 'sub', 'mine'] as ThreatType[]) {
+  for (const type of THREAT_TYPES) {
     r -= w[type]
     if (r <= 0) return type
   }
@@ -164,6 +232,24 @@ function pickThreatType(depth: number): ThreatType {
 
 function spawnThreat(world: World) {
   const type = pickThreatType(world.depth)
+
+  if (type === 'tentacle') {
+    const side: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right'
+    const reach = TENTACLE_REACH_MIN + Math.random() * (TENTACLE_REACH_MAX - TENTACLE_REACH_MIN)
+    world.threats.push({
+      id: world.nextId++,
+      type,
+      side,
+      reach,
+      x: side === 'left' ? 0 : BOARD_W,
+      baseX: side === 'left' ? 0 : BOARD_W,
+      y: BOARD_H + SPAWN_MARGIN,
+      phase: Math.random() * Math.PI * 2,
+      fireIn: 0,
+    })
+    return
+  }
+
   const spec = THREAT_SPEC[type]
   const x = THREAT_MARGIN + spec.r + Math.random() * (BOARD_W - (THREAT_MARGIN + spec.r) * 2)
   world.threats.push({
@@ -177,11 +263,85 @@ function spawnThreat(world: World) {
   })
 }
 
+function pickPowerupType(): PowerupType {
+  const r = Math.random()
+  if (r < 0.45) return 'shotgun'
+  if (r < 0.75) return 'health'
+  return 'laser'
+}
+
+function spawnPowerup(world: World) {
+  const type = pickPowerupType()
+  const x = THREAT_MARGIN + POWERUP_R + Math.random() * (BOARD_W - (THREAT_MARGIN + POWERUP_R) * 2)
+  world.powerups.push({ id: world.nextId++, type, x, y: BOARD_H + SPAWN_MARGIN })
+}
+
+function spawnMineSpray(world: World, x: number, y: number) {
+  for (let i = 0; i < MINE_BULLET_COUNT; i++) {
+    const angle = (i / MINE_BULLET_COUNT) * Math.PI * 2
+    world.projectiles.push({
+      id: world.nextId++,
+      x,
+      y,
+      vx: Math.cos(angle) * MINE_BULLET_SPEED,
+      vy: Math.sin(angle) * MINE_BULLET_SPEED,
+      kind: 'mine',
+    })
+  }
+  world.effects.push({ x, y, kind: 'blast' })
+}
+
 function circlesOverlap(ax: number, ay: number, ar: number, bx: number, by: number, br: number) {
   const dx = ax - bx
   const dy = ay - by
   const rr = ar + br
   return dx * dx + dy * dy <= rr * rr
+}
+
+function inBounds(x: number, y: number) {
+  return x > -CULL_MARGIN && x < BOARD_W + CULL_MARGIN && y > -CULL_MARGIN && y < BOARD_H + CULL_MARGIN
+}
+
+/** Whether a threat's silhouette falls within an x-band — used by the laser,
+ *  which cuts a column rather than testing a point-to-point circle. */
+function threatInXBand(threat: Threat, xMin: number, xMax: number) {
+  if (threat.type === 'tentacle') {
+    const reach = threat.reach ?? 0
+    const bandMin = threat.side === 'left' ? 0 : BOARD_W - reach
+    const bandMax = threat.side === 'left' ? reach : BOARD_W
+    return bandMin < xMax && bandMax > xMin
+  }
+  const r = THREAT_SPEC[threat.type].r
+  return threat.x + r > xMin && threat.x - r < xMax
+}
+
+/** The ultimate beam: while active, anything scrolling into its column is
+ *  destroyed outright — including tentacles and mines, cleanly (no spray). */
+function laserSweep(world: World) {
+  if (world.laserT <= 0) return
+  const xMin = world.laserX - LASER_HALF_WIDTH
+  const xMax = world.laserX + LASER_HALF_WIDTH
+  const dead = new Set<number>()
+  for (const threat of world.threats) {
+    if (!threatInXBand(threat, xMin, xMax)) continue
+    dead.add(threat.id)
+    world.killPoints += THREAT_SPEC[threat.type].points
+    world.effects.push({ x: threat.type === 'tentacle' ? world.laserX : threat.x, y: threat.y, kind: 'kill' })
+  }
+  if (dead.size) world.threats = world.threats.filter((t) => !dead.has(t.id))
+}
+
+/** Mines detonate on their own once close enough — a proximity fuse, not a
+ *  contact one. A missile can still pop one early for a clean kill first. */
+function detonateFusedMines(world: World) {
+  const detonated = new Set<number>()
+  for (const threat of world.threats) {
+    if (threat.type === 'mine' && threat.y <= SUB_Y + MINE_FUSE_RANGE) {
+      detonated.add(threat.id)
+      spawnMineSpray(world, threat.x, threat.y)
+    }
+  }
+  if (detonated.size) world.threats = world.threats.filter((t) => !detonated.has(t.id))
 }
 
 export function step(world: World, dt: number, input: { fire: boolean }) {
@@ -193,15 +353,33 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   world.subX += (world.subTargetX - world.subX) * Math.min(1, dt / STEP_TIME)
   world.invincibleT = Math.max(0, world.invincibleT - dt)
   world.fireCooldown = Math.max(0, world.fireCooldown - dt)
+  world.laserT = Math.max(0, world.laserT - dt)
+  if (world.weaponMode === 'shotgun') {
+    world.weaponModeT -= dt
+    if (world.weaponModeT <= 0) world.weaponMode = 'normal'
+  }
 
   // --- descent ----------------------------------------------------------
   const speed = speedForDepth(world.depth)
   world.depth += speed * dt
 
-  // --- firing -------------------------------------------------------------
+  // --- firing: the ultimate takes priority, then the shotgun buff -----------
   if (input.fire && world.fireCooldown <= 0) {
-    world.fireCooldown = FIRE_COOLDOWN
-    world.missiles.push({ id: world.nextId++, x: world.subX, y: SUB_Y - SUB_R })
+    if (world.laserCharges > 0) {
+      world.laserCharges -= 1
+      world.laserT = LASER_DURATION
+      world.laserX = world.subX
+      world.fireCooldown = LASER_COOLDOWN
+    } else if (world.weaponMode === 'shotgun') {
+      world.fireCooldown = FIRE_COOLDOWN
+      for (let i = 0; i < SHOTGUN_MISSILE_COUNT; i++) {
+        const t = (i / (SHOTGUN_MISSILE_COUNT - 1)) * 2 - 1
+        world.missiles.push({ id: world.nextId++, x: world.subX, y: SUB_Y - SUB_R, vx: t * SHOTGUN_SPREAD_VX, vy: MISSILE_SPEED })
+      }
+    } else {
+      world.fireCooldown = FIRE_COOLDOWN
+      world.missiles.push({ id: world.nextId++, x: world.subX, y: SUB_Y - SUB_R, vx: 0, vy: MISSILE_SPEED })
+    }
   }
 
   // --- threat spawn/scroll -------------------------------------------------
@@ -221,26 +399,62 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
       threat.fireIn -= dt
       if (threat.fireIn <= 0 && threat.y < BOARD_H && threat.y > 0) {
         threat.fireIn = SUB_FIRE_MIN + Math.random() * (SUB_FIRE_MAX - SUB_FIRE_MIN)
-        world.projectiles.push({ id: world.nextId++, x: threat.x, y: threat.y })
+        world.projectiles.push({ id: world.nextId++, x: threat.x, y: threat.y, vx: 0, vy: -PROJECTILE_SPEED, kind: 'sub' })
       }
     }
   }
 
-  // --- missiles: travel down, away from the sub ----------------------------
-  for (const missile of world.missiles) missile.y += MISSILE_SPEED * dt
-  world.missiles = world.missiles.filter((m) => m.y < BOARD_H + CULL_MARGIN)
+  // The ultimate gets first crack at anything in its column (a clean kill,
+  // mines included), then whatever mines are left check their own fuse.
+  laserSweep(world)
+  detonateFusedMines(world)
 
-  // --- enemy projectiles: travel up, toward the sub -------------------------
-  for (const projectile of world.projectiles) projectile.y -= PROJECTILE_SPEED * dt
-  world.projectiles = world.projectiles.filter((p) => p.y > -CULL_MARGIN)
+  // --- missiles and enemy fire: generalized 2D travel, culled off any edge --
+  for (const missile of world.missiles) {
+    missile.x += missile.vx * dt
+    missile.y += missile.vy * dt
+  }
+  world.missiles = world.missiles.filter((m) => inBounds(m.x, m.y))
 
-  // --- missile vs threat ----------------------------------------------------
+  for (const projectile of world.projectiles) {
+    projectile.x += projectile.vx * dt
+    projectile.y += projectile.vy * dt
+  }
+  world.projectiles = world.projectiles.filter((p) => inBounds(p.x, p.y))
+
+  // --- power-ups: spawn, scroll, pick up -------------------------------------
+  world.powerupAccumulator += speed * dt
+  if (world.powerupAccumulator >= POWERUP_SPACING) {
+    world.powerupAccumulator -= POWERUP_SPACING
+    spawnPowerup(world)
+  }
+  for (const powerup of world.powerups) powerup.y -= speed * dt
+  world.powerups = world.powerups.filter((p) => p.y > -CULL_MARGIN)
+
+  const collected = new Set<number>()
+  for (const powerup of world.powerups) {
+    if (circlesOverlap(world.subX, SUB_Y, SUB_R, powerup.x, powerup.y, POWERUP_R)) {
+      collected.add(powerup.id)
+      if (powerup.type === 'shotgun') {
+        world.weaponMode = 'shotgun'
+        world.weaponModeT = SHOTGUN_DURATION
+      } else if (powerup.type === 'laser') {
+        world.laserCharges = Math.min(1, world.laserCharges + 1)
+      } else {
+        world.lives = Math.min(LIVES_MAX, world.lives + 1)
+      }
+      world.effects.push({ x: powerup.x, y: powerup.y, kind: 'pickup' })
+    }
+  }
+  if (collected.size) world.powerups = world.powerups.filter((p) => !collected.has(p.id))
+
+  // --- missile vs threat (tentacles are terrain — missiles pass through) ----
   const deadThreats = new Set<number>()
   const spentMissiles = new Set<number>()
   for (const missile of world.missiles) {
     if (spentMissiles.has(missile.id)) continue
     for (const threat of world.threats) {
-      if (deadThreats.has(threat.id)) continue
+      if (threat.type === 'tentacle' || deadThreats.has(threat.id)) continue
       const spec = THREAT_SPEC[threat.type]
       if (circlesOverlap(missile.x, missile.y, MISSILE_R, threat.x, threat.y, spec.r)) {
         deadThreats.add(threat.id)
@@ -258,7 +472,16 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   if (world.invincibleT <= 0) {
     let hit = false
     for (const threat of world.threats) {
-      if (circlesOverlap(world.subX, SUB_Y, SUB_R, threat.x, threat.y, THREAT_SPEC[threat.type].r)) {
+      if (threat.type === 'tentacle') {
+        const reach = threat.reach ?? 0
+        const yOverlap = Math.abs(SUB_Y - threat.y) < TENTACLE_THICKNESS / 2 + SUB_R
+        if (!yOverlap) continue
+        const xOverlap = threat.side === 'left' ? world.subX - SUB_R < reach : world.subX + SUB_R > BOARD_W - reach
+        if (xOverlap) {
+          hit = true
+          break
+        }
+      } else if (circlesOverlap(world.subX, SUB_Y, SUB_R, threat.x, threat.y, THREAT_SPEC[threat.type].r)) {
         deadThreats.add(threat.id)
         hit = true
         break
@@ -268,7 +491,8 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
 
     if (!hit) {
       for (const projectile of world.projectiles) {
-        if (circlesOverlap(world.subX, SUB_Y, SUB_R, projectile.x, projectile.y, PROJECTILE_R)) {
+        const pr = projectile.kind === 'mine' ? MINE_BULLET_R : PROJECTILE_R
+        if (circlesOverlap(world.subX, SUB_Y, SUB_R, projectile.x, projectile.y, pr)) {
           world.projectiles = world.projectiles.filter((p) => p.id !== projectile.id)
           hit = true
           break

@@ -35,7 +35,7 @@ export function GameOverlay({ phase, score, best, onStart, onResume, onNewGame }
                 <h2>Dive Depths</h2>
                 <p>
                   Tap left/right or use ←/→ to steer, fire with Space or the Fire button. Clear the
-                  depths and don't get hit three times.
+                  depths and keep your hull intact.
                 </p>
                 <button type="button" className="btn btn--primary" onClick={onStart}>
                   Start diving

@@ -1,5 +1,18 @@
 import * as THREE from 'three'
-import { BOARD_H, BOARD_W, SUB_Y, type Effect, type Missile, type Projectile, type Threat, type World } from './physics'
+import {
+  BOARD_H,
+  BOARD_W,
+  LASER_DURATION,
+  LASER_HALF_WIDTH,
+  SUB_Y,
+  type Effect,
+  type Missile,
+  type Powerup,
+  type PowerupType,
+  type Projectile,
+  type Threat,
+  type World,
+} from './physics'
 import { DARKEN_DEPTH, hexToCss, paletteAt, type Palette } from './palette'
 import { makeLivesRing, makeRingShard, setLivesRing, type LivesRing } from './kit'
 import type { GamePhase } from './types'
@@ -9,6 +22,22 @@ const BURST_PARTICLE_COUNT = 60
 const GRADIENT_STEPS = 24
 const FOV = 42
 const SUB_SCREEN_Y = SUB_Y / BOARD_H
+
+// The ultimate beam spans a fixed stretch of the board (starting just above
+// the sub so it visibly originates from it, running well past the bottom
+// edge) — only its x position and opacity change frame to frame.
+const LASER_BEAM_TOP = SUB_Y - 20
+const LASER_BEAM_BOTTOM = BOARD_H + 60
+const LASER_BEAM_LENGTH = LASER_BEAM_BOTTOM - LASER_BEAM_TOP
+const LASER_BEAM_CENTER_Y = (LASER_BEAM_TOP + LASER_BEAM_BOTTOM) / 2
+
+const upAxis = new THREE.Vector3(0, 1, 0)
+
+// Every bullet in the game — player missiles, enemy sub fire, mine shrapnel —
+// is a bright orange circle, deliberately depth-invariant (not part of the
+// palette lerp) so a dodgeable projectile always reads clearly.
+const BULLET_CORE_COLOR = 0xff7a1a
+const BULLET_GLOW_COLOR = 0xffb347
 
 function seededRandom(seed: number) {
   let s = seed % 2147483647
@@ -58,10 +87,22 @@ interface Materials {
   mineShell: THREE.MeshStandardMaterial
   mineSpike: THREE.MeshStandardMaterial
   mineLamp: THREE.MeshStandardMaterial
-  missileBody: THREE.MeshStandardMaterial
-  missileGlow: THREE.MeshStandardMaterial
-  projectileBody: THREE.MeshStandardMaterial
-  projectileGlow: THREE.MeshStandardMaterial
+  /** Every bullet — player missiles, enemy sub fire, mine shrapnel — shares
+   *  this pair: bright orange, always at full visibility regardless of
+   *  depth, since a dodgeable projectile has to read clearly at any depth. */
+  bulletCore: THREE.MeshBasicMaterial
+  bulletGlow: THREE.MeshBasicMaterial
+  tentacleBody: THREE.MeshStandardMaterial
+  tentacleSucker: THREE.MeshStandardMaterial
+  tentacleEyeGlow: THREE.MeshStandardMaterial
+  powerupShotgunBody: THREE.MeshStandardMaterial
+  powerupShotgunGlow: THREE.MeshStandardMaterial
+  powerupLaserBody: THREE.MeshStandardMaterial
+  powerupLaserGlow: THREE.MeshStandardMaterial
+  powerupHealthBody: THREE.MeshStandardMaterial
+  powerupHealthGlow: THREE.MeshStandardMaterial
+  laserBeamCore: THREE.MeshBasicMaterial
+  laserBeamGlow: THREE.MeshBasicMaterial
   eyeWhite: THREE.MeshStandardMaterial
   eyeDark: THREE.MeshStandardMaterial
   bubble: THREE.MeshBasicMaterial
@@ -84,10 +125,19 @@ function makeMaterials(p: Palette): Materials {
     mineShell: flat(p.mineShell, { metalness: p.metalness * 0.5, roughness: 0.8 }),
     mineSpike: flat(p.mineSpike, { metalness: p.metalness, roughness: 0.45 }),
     mineLamp: flat(p.mineLamp, { emissive: p.mineLamp, emissiveIntensity: p.mineLampGlow, roughness: 0.4 }),
-    missileBody: flat(p.missileBody, { roughness: 0.35, metalness: 0.4 }),
-    missileGlow: flat(p.missileGlow, { emissive: p.missileGlow, emissiveIntensity: 1.6 }),
-    projectileBody: flat(p.projectileBody, { roughness: 0.5 }),
-    projectileGlow: flat(p.projectileGlow, { emissive: p.projectileGlow, emissiveIntensity: 1.8 }),
+    bulletCore: new THREE.MeshBasicMaterial({ color: BULLET_CORE_COLOR }),
+    bulletGlow: new THREE.MeshBasicMaterial({ color: BULLET_GLOW_COLOR, transparent: true, opacity: 0.5 }),
+    tentacleBody: flat(p.tentacleBody, { roughness: 0.75 }),
+    tentacleSucker: flat(p.tentacleSucker, { roughness: 0.6 }),
+    tentacleEyeGlow: flat(p.tentacleEyeGlow, { emissive: p.tentacleEyeGlow, emissiveIntensity: 2.2 }),
+    powerupShotgunBody: flat(p.powerupShotgunBody, { roughness: 0.45, metalness: 0.3 }),
+    powerupShotgunGlow: flat(p.powerupShotgunGlow, { emissive: p.powerupShotgunGlow, emissiveIntensity: 1.8 }),
+    powerupLaserBody: flat(p.powerupLaserBody, { roughness: 0.3, metalness: 0.2 }),
+    powerupLaserGlow: flat(p.powerupLaserGlow, { emissive: p.powerupLaserGlow, emissiveIntensity: 2.2 }),
+    powerupHealthBody: flat(p.powerupHealthBody, { roughness: 0.55, metalness: 0.2 }),
+    powerupHealthGlow: flat(p.powerupHealthGlow, { emissive: p.powerupHealthGlow, emissiveIntensity: 1.6 }),
+    laserBeamCore: new THREE.MeshBasicMaterial({ color: p.laserBeamCore, transparent: true, opacity: 0 }),
+    laserBeamGlow: new THREE.MeshBasicMaterial({ color: p.laserBeamGlow, transparent: true, opacity: 0 }),
     eyeWhite: flat(0xffffff, { roughness: 0.3 }),
     eyeDark: flat(0x151b22, { roughness: 0.4 }),
     bubble: new THREE.MeshBasicMaterial({ color: p.bubble, transparent: true, opacity: p.bubbleOpacity }),
@@ -121,12 +171,21 @@ function applyPalette(m: Materials, p: Palette) {
   m.mineLamp.color.setHex(p.mineLamp)
   m.mineLamp.emissive.setHex(p.mineLamp)
   m.mineLamp.emissiveIntensity = p.mineLampGlow
-  m.missileBody.color.setHex(p.missileBody)
-  m.missileGlow.color.setHex(p.missileGlow)
-  m.missileGlow.emissive.setHex(p.missileGlow)
-  m.projectileBody.color.setHex(p.projectileBody)
-  m.projectileGlow.color.setHex(p.projectileGlow)
-  m.projectileGlow.emissive.setHex(p.projectileGlow)
+  m.tentacleBody.color.setHex(p.tentacleBody)
+  m.tentacleSucker.color.setHex(p.tentacleSucker)
+  m.tentacleEyeGlow.color.setHex(p.tentacleEyeGlow)
+  m.tentacleEyeGlow.emissive.setHex(p.tentacleEyeGlow)
+  m.powerupShotgunBody.color.setHex(p.powerupShotgunBody)
+  m.powerupShotgunGlow.color.setHex(p.powerupShotgunGlow)
+  m.powerupShotgunGlow.emissive.setHex(p.powerupShotgunGlow)
+  m.powerupLaserBody.color.setHex(p.powerupLaserBody)
+  m.powerupLaserGlow.color.setHex(p.powerupLaserGlow)
+  m.powerupLaserGlow.emissive.setHex(p.powerupLaserGlow)
+  m.powerupHealthBody.color.setHex(p.powerupHealthBody)
+  m.powerupHealthGlow.color.setHex(p.powerupHealthGlow)
+  m.powerupHealthGlow.emissive.setHex(p.powerupHealthGlow)
+  m.laserBeamCore.color.setHex(p.laserBeamCore)
+  m.laserBeamGlow.color.setHex(p.laserBeamGlow)
   m.bubble.color.setHex(p.bubble)
   m.bubble.opacity = p.bubbleOpacity
   m.burstCore.color.setHex(p.explosionCore)
@@ -143,6 +202,7 @@ interface Sub {
   propeller: THREE.Group
   livesRing: LivesRing
   shard: THREE.Mesh
+  beaconLight: THREE.PointLight
 }
 
 function buildSub(m: Materials): Sub {
@@ -192,6 +252,16 @@ function buildSub(m: Materials): Sub {
   headlight.rotation.x = Math.PI
   root.add(headlight)
 
+  // A top-mounted beacon, dark and unremarkable at the sunlit surface — its
+  // point light only really switches on once the water goes dark, so the
+  // sub visibly starts lighting its own way as it enters the depths.
+  const beaconBulb = new THREE.Mesh(new THREE.IcosahedronGeometry(2.4, 0), m.subGlow)
+  beaconBulb.position.set(-2, 23.4, 0)
+  root.add(beaconBulb)
+  const beaconLight = new THREE.PointLight(0xffffff, 0, 260, 2)
+  beaconLight.position.set(-2, 24, 0)
+  root.add(beaconLight)
+
   const livesRing = makeLivesRing()
   livesRing.group.position.set(-2, 12, 5)
   root.add(livesRing.group)
@@ -199,31 +269,20 @@ function buildSub(m: Materials): Sub {
   const shard = makeRingShard()
   root.add(shard)
 
-  return { root, propeller, livesRing, shard }
+  return { root, propeller, livesRing, shard, beaconLight }
 }
 
 /* ---------------------------------------------------------------
-   Missiles and enemy projectiles
+   Bullets — player missiles, enemy sub fire and mine shrapnel are all the
+   same bright orange circle: a glowing core inside a softer halo. Every
+   dodgeable projectile in the game shares this one look, whatever fired it.
 --------------------------------------------------------------- */
-function buildMissile(m: Materials): THREE.Group {
+function buildBullet(m: Materials): THREE.Group {
   const g = new THREE.Group()
-  const body = new THREE.Mesh(new THREE.ConeGeometry(4, 15, 6), m.missileBody)
-  body.rotation.x = Math.PI
-  g.add(body)
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(2, 6, 6), m.missileGlow)
-  tip.position.y = -9
-  tip.rotation.x = Math.PI
-  g.add(tip)
-  return g
-}
-
-function buildProjectile(m: Materials): THREE.Group {
-  const g = new THREE.Group()
-  const body = new THREE.Mesh(new THREE.ConeGeometry(3.4, 12, 5), m.projectileBody)
-  g.add(body)
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(1.6, 5, 5), m.projectileGlow)
-  tip.position.y = 7
-  g.add(tip)
+  const halo = new THREE.Mesh(new THREE.IcosahedronGeometry(6, 1), m.bulletGlow)
+  g.add(halo)
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(3.2, 1), m.bulletCore)
+  g.add(core)
   return g
 }
 
@@ -367,6 +426,63 @@ function buildMineView(m: Materials, rand: () => number): ThreatView {
   return { group, kind: 'mine', spin: 0.2 + rand() * 0.2, phase: rand() * Math.PI * 2 }
 }
 
+/**
+ * A tentacle reaching from one wall — geometry is built in "reaches toward
+ * +x" local space and mirrored via `dir`, then the group is placed at the
+ * actual wall (x=0 or x=BOARD_W) in syncThreats, so it only ever sways in
+ * place (rotating around its own wall-anchored origin) rather than needing
+ * per-frame repositioning of each segment.
+ */
+function buildTentacleView(m: Materials, rand: () => number, threat: Threat): ThreatView {
+  const group = new THREE.Group()
+  const dir = threat.side === 'left' ? 1 : -1
+  const reach = threat.reach ?? BOARD_W * 0.6
+
+  const SEGMENTS = 7
+  const points: THREE.Vector3[] = []
+  for (let i = 0; i <= SEGMENTS; i++) {
+    const t = i / SEGMENTS
+    points.push(
+      new THREE.Vector3(
+        dir * reach * t,
+        Math.sin(t * Math.PI * 1.3 + 0.4) * 22 - 8,
+        Math.cos(t * Math.PI * 0.8) * 12,
+      ),
+    )
+  }
+
+  for (let i = 0; i < SEGMENTS; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    const mid = a.clone().add(b).multiplyScalar(0.5)
+    const len = a.distanceTo(b)
+    const rTop = 12 * (1 - i / SEGMENTS) + 3
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(rTop * 0.6, rTop * 0.45, len * 1.15, 7), m.tentacleBody)
+    seg.position.copy(mid)
+    seg.quaternion.setFromUnitVectors(upAxis, b.clone().sub(a).normalize())
+    group.add(seg)
+
+    if (i % 2 === 1) {
+      const sucker = new THREE.Mesh(new THREE.SphereGeometry(rTop * 0.3, 6, 5), m.tentacleSucker)
+      sucker.position.copy(mid).add(new THREE.Vector3(0, -rTop * 0.3, rTop * 0.5))
+      group.add(sucker)
+    }
+  }
+
+  // The Loch-Ness body itself stays implied, just off the edge — a dark mass
+  // with two glowing eyes catching what little light reaches this depth.
+  const headShadow = new THREE.Mesh(new THREE.IcosahedronGeometry(22, 0), m.tentacleBody)
+  headShadow.position.set(dir * -8, -4, -8)
+  group.add(headShadow)
+  for (const s of [1, -1]) {
+    const eye = new THREE.Mesh(new THREE.IcosahedronGeometry(3.6, 0), m.tentacleEyeGlow)
+    eye.position.set(dir * 9, 5, s * 10)
+    group.add(eye)
+  }
+
+  return { group, kind: 'tentacle', spin: 0, phase: rand() * Math.PI * 2 }
+}
+
 function buildThreatView(threat: Threat, m: Materials): ThreatView {
   const rand = seededRandom(threat.id * 977 + 31)
   switch (threat.type) {
@@ -378,7 +494,82 @@ function buildThreatView(threat: Threat, m: Materials): ThreatView {
       return buildEnemySubView(m, rand)
     case 'mine':
       return buildMineView(m, rand)
+    case 'tentacle':
+      return buildTentacleView(m, rand, threat)
   }
+}
+
+/* ---------------------------------------------------------------
+   Power-ups — a shotgun burst-shaped pickup and a laser crystal shard.
+--------------------------------------------------------------- */
+function buildShotgunPickup(m: Materials): THREE.Group {
+  const g = new THREE.Group()
+  g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(7, 0), m.powerupShotgunBody))
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2
+    const dir = new THREE.Vector3(Math.cos(a), Math.sin(a), 0)
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(2.2, 9, 4), m.powerupShotgunGlow)
+    spike.position.copy(dir).multiplyScalar(8)
+    spike.quaternion.setFromUnitVectors(upAxis, dir)
+    g.add(spike)
+  }
+  return g
+}
+
+function buildLaserPickup(m: Materials): THREE.Group {
+  const g = new THREE.Group()
+  const shard = new THREE.Mesh(new THREE.OctahedronGeometry(9, 0), m.powerupLaserBody)
+  shard.scale.y = 1.6
+  g.add(shard)
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(4, 0), m.powerupLaserGlow)
+  core.scale.y = 1.6
+  g.add(core)
+  return g
+}
+
+/** A supply crate stamped with a gear — restores a hit point on pickup. */
+function buildHealthPickup(m: Materials): THREE.Group {
+  const g = new THREE.Group()
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(13, 13, 13), m.powerupHealthBody))
+  for (const face of [1, -1]) {
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 1.4, 10), m.powerupHealthGlow)
+    hub.rotation.x = Math.PI / 2
+    hub.position.z = face * 6.7
+    g.add(hub)
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      const tooth = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 1.4), m.powerupHealthGlow)
+      tooth.position.set(Math.cos(a) * 5, Math.sin(a) * 5, face * 6.7)
+      g.add(tooth)
+    }
+  }
+  return g
+}
+
+function buildPowerupView(type: PowerupType, m: Materials): THREE.Group {
+  if (type === 'shotgun') return buildShotgunPickup(m)
+  if (type === 'health') return buildHealthPickup(m)
+  return buildLaserPickup(m)
+}
+
+/* ---------------------------------------------------------------
+   The ultimate beam — a fixed-size column toggled visible and repositioned
+   on x, rather than rebuilt each use.
+--------------------------------------------------------------- */
+interface LaserBeam {
+  group: THREE.Group
+  core: THREE.Mesh
+  glow: THREE.Mesh
+}
+
+function buildLaserBeam(m: Materials): LaserBeam {
+  const group = new THREE.Group()
+  const width = LASER_HALF_WIDTH * 2
+  const core = new THREE.Mesh(new THREE.BoxGeometry(width * 0.55, LASER_BEAM_LENGTH, 1), m.laserBeamCore)
+  const glow = new THREE.Mesh(new THREE.BoxGeometry(width, LASER_BEAM_LENGTH, 1), m.laserBeamGlow)
+  glow.position.z = -2
+  group.add(glow, core)
+  return { group, core, glow }
 }
 
 /* ---------------------------------------------------------------
@@ -422,6 +613,8 @@ export class Scene3D {
   private threatViews = new Map<number, ThreatView>()
   private missileViews = new Map<number, THREE.Group>()
   private projectileViews = new Map<number, THREE.Group>()
+  private powerupViews = new Map<number, THREE.Group>()
+  private laserBeam: LaserBeam
   private bubbleMesh: THREE.InstancedMesh
   private bubbles: Bubble[] = []
   private burstCoreMesh: THREE.InstancedMesh
@@ -459,6 +652,10 @@ export class Scene3D {
 
     this.sub = buildSub(this.materials)
     this.scene.add(this.sub.root)
+
+    this.laserBeam = buildLaserBeam(this.materials)
+    this.laserBeam.group.visible = false
+    this.scene.add(this.laserBeam.group)
 
     const dropletGeo = new THREE.IcosahedronGeometry(1, 0)
 
@@ -526,6 +723,7 @@ export class Scene3D {
     this.key.intensity = palette.key.intensity
     this.fill.color.setHex(palette.fill.color)
     this.fill.intensity = palette.fill.intensity
+    this.sub.beaconLight.color.setHex(palette.subGlow)
 
     const fog = this.scene.fog as THREE.Fog
     fog.color.setHex(palette.fog.color)
@@ -542,12 +740,16 @@ export class Scene3D {
   }
 
   private triggerBurst(x: number, y: number, kind: Effect['kind']) {
+    const count = kind === 'blast' ? 22 : kind === 'kill' ? 16 : kind === 'pickup' ? 9 : 10
+    const speedBase = kind === 'blast' ? 110 : kind === 'pickup' ? 30 : 70
+    const speedRange = kind === 'blast' ? 170 : kind === 'pickup' ? 40 : 120
+    const scaleBase = kind === 'blast' ? 6 : kind === 'pickup' ? 3 : 4
+    const scaleRange = kind === 'blast' ? 9 : kind === 'pickup' ? 4 : 6
     let spawned = 0
-    const count = kind === 'kill' ? 16 : 10
     for (const particle of this.burstParticles) {
       if (particle.active) continue
       const angle = Math.random() * Math.PI * 2
-      const speed = 70 + Math.random() * 120
+      const speed = speedBase + Math.random() * speedRange
       particle.active = true
       particle.x = x
       particle.y = y
@@ -557,7 +759,7 @@ export class Scene3D {
       particle.vz = (Math.random() - 0.5) * 60
       particle.age = 0
       particle.life = 0.35 + Math.random() * 0.3
-      particle.scale = 4 + Math.random() * 6
+      particle.scale = scaleBase + Math.random() * scaleRange
       particle.spark = Math.random() > 0.5
       spawned++
       if (spawned >= count) break
@@ -602,7 +804,7 @@ export class Scene3D {
       seen.add(missile.id)
       let view = this.missileViews.get(missile.id)
       if (!view) {
-        view = buildMissile(this.materials)
+        view = buildBullet(this.materials)
         this.missileViews.set(missile.id, view)
         this.scene.add(view)
       }
@@ -621,7 +823,7 @@ export class Scene3D {
       seen.add(projectile.id)
       let view = this.projectileViews.get(projectile.id)
       if (!view) {
-        view = buildProjectile(this.materials)
+        view = buildBullet(this.materials)
         this.projectileViews.set(projectile.id, view)
         this.scene.add(view)
       }
@@ -632,6 +834,39 @@ export class Scene3D {
       this.scene.remove(view)
       this.projectileViews.delete(id)
     }
+  }
+
+  private syncPowerups(world: World, dt: number, now: number) {
+    const seen = new Set<number>()
+    for (const powerup of world.powerups as Powerup[]) {
+      seen.add(powerup.id)
+      let view = this.powerupViews.get(powerup.id)
+      if (!view) {
+        view = buildPowerupView(powerup.type, this.materials)
+        this.powerupViews.set(powerup.id, view)
+        this.scene.add(view)
+      }
+      const bob = Math.sin(now * 3 + powerup.id) * 4
+      view.position.set(boardXToWorld(powerup.x), boardYToWorld(powerup.y) + bob, 22)
+      view.rotation.y += dt * 1.8
+    }
+    for (const [id, view] of this.powerupViews) {
+      if (seen.has(id)) continue
+      this.scene.remove(view)
+      this.powerupViews.delete(id)
+    }
+  }
+
+  /** The beam is a fixed box toggled visible and faded by remaining laserT,
+   *  repositioned only on x — see LASER_BEAM_TOP/BOTTOM for why y is fixed. */
+  private updateLaser(world: World) {
+    const active = world.laserT > 0
+    this.laserBeam.group.visible = active
+    if (!active) return
+    this.laserBeam.group.position.set(boardXToWorld(world.laserX), boardYToWorld(LASER_BEAM_CENTER_Y), 26)
+    const k = world.laserT / LASER_DURATION
+    ;(this.laserBeam.core.material as THREE.MeshBasicMaterial).opacity = 0.9 * k
+    ;(this.laserBeam.glow.material as THREE.MeshBasicMaterial).opacity = 0.5 * k
   }
 
   private updateSub(world: World, phase: GamePhase, dt: number, now: number) {
@@ -645,6 +880,10 @@ export class Scene3D {
     this.sub.root.rotation.z = this.bank
 
     this.sub.propeller.rotation.x += dt * 22
+
+    // Dark and unlit at the sunlit surface, a real point light by full depth —
+    // a light source that visibly switches on as the sub enters the depths.
+    this.sub.beaconLight.intensity = this.depth * this.depth * 3.5
 
     setLivesRing(this.sub.livesRing, world.lives, now)
 
@@ -720,6 +959,8 @@ export class Scene3D {
     this.syncThreats(world, dt, now)
     this.syncMissiles(world)
     this.syncProjectiles(world)
+    this.syncPowerups(world, dt, now)
+    this.updateLaser(world)
     this.updateSub(world, phase, dt, now)
     this.updateBubbles(dt, now)
 
@@ -743,6 +984,8 @@ export class Scene3D {
     this.missileViews.clear()
     for (const view of this.projectileViews.values()) this.scene.remove(view)
     this.projectileViews.clear()
+    for (const view of this.powerupViews.values()) this.scene.remove(view)
+    this.powerupViews.clear()
     this.renderer.dispose()
   }
 }

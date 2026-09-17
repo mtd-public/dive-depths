@@ -240,6 +240,66 @@ button {
   line-height: 1.1;
 }
 
+/* ---------- Weapon badge: mirrors the depth badge, opposite corner ---------- */
+.weapon-badge {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  pointer-events: none;
+}
+
+.weapon-badge__row {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  backdrop-filter: blur(3px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.weapon-badge__row--shotgun {
+  background: rgba(216, 138, 46, 0.5);
+  color: #ffe27a;
+}
+
+.weapon-badge__row--laser {
+  background: rgba(122, 76, 217, 0.5);
+  color: #d9baff;
+  animation: weapon-pulse 1s ease-in-out infinite;
+}
+
+@keyframes weapon-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.fire-tap--charged,
+.btn--fire--charged {
+  animation: fire-charged-glow 0.9s ease-in-out infinite;
+}
+
+@keyframes fire-charged-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(154, 123, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 22px 4px rgba(154, 123, 255, 0.65);
+  }
+}
+
 .game-canvas {
   display: block;
   width: 100%;
@@ -541,7 +601,8 @@ button {
     box-shadow: 0 1px 2px rgba(20, 22, 30, 0.05), 0 12px 32px -12px rgba(20, 22, 30, 0.25);
   }
 
-  .depth-badge {
+  .depth-badge,
+  .weapon-badge {
     top: 10px;
   }
 
