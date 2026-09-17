@@ -77,6 +77,57 @@ const FORMATION_COUNT_MAX = 4
 const FORMATION_DX = 50
 const FORMATION_DY = 60
 
+// Boss encounters: `depth` already drives difficulty scaling and climbs by
+// a couple hundred units a second, so a milestone counted directly in that
+// unit would fire every few seconds. `metersForDepth` rescales it into a
+// much coarser "distance" purely for pacing the boss cadence and for the
+// number the player sees — about a minute of normal diving between fights.
+// An integer divisor, not a 0.1 multiplier — dividing by 10 keeps the
+// post-boss depth reset (below) exact, where multiplying by a fractional
+// 0.1 constant would round-trip through floating-point error and land the
+// "distance" a meter short of where cleared + 1 should put it.
+const DEPTH_PER_METER = 10
+const BOSS_INTERVAL_METERS = 2000
+export function metersForDepth(depth: number): number {
+  return Math.floor(depth / DEPTH_PER_METER)
+}
+
+// The boss is fixed at the bottom of the board — a vast, mostly-submerged
+// creature rather than something that swims up to meet the sub. Its mine
+// squads spawn separately, from the same edge every other threat does, so
+// they still cross the same distance (and get the same proximity-fuse
+// warning) as a normal mine, regardless of where the boss itself sits.
+const BOSS_Y = BOARD_H - 40
+const BOSS_ENTER_SPEED = 140
+export const BOSS_R = 50
+const BOSS_HP_MIN = 15
+const BOSS_HP_MAX = 20
+const BOSS_KILL_POINTS = 300
+const BOSS_ATTACK_MIN = 2.4
+const BOSS_ATTACK_MAX = 3.8
+export const BOSS_MOUTH_OPEN_TIME = 0.5
+export const BOSS_EXPLODE_TIME = 1.4
+const BOSS_MINE_SQUAD_SIZES = [5, 10, 15] as const
+const BOSS_MINE_COLS = 5
+const BOSS_MINE_COL_SPACING = 50
+const BOSS_MINE_ROW_SPACING = 70
+
+export type BossPhase = 'entering' | 'fighting' | 'exploding'
+
+export interface Boss {
+  id: number
+  x: number
+  y: number
+  hp: number
+  maxHp: number
+  phase: BossPhase
+  phaseT: number
+  attackIn: number
+  /** Counts down from BOSS_MOUTH_OPEN_TIME whenever it just spat a squad —
+   *  purely a visual telegraph for the scene to animate the jaw with. */
+  mouthOpenT: number
+}
+
 export type ThreatType = 'fish' | 'monster' | 'sub' | 'mine' | 'tentacle'
 
 interface ThreatSpec {
@@ -168,6 +219,9 @@ export interface World {
   depth: number
   elapsed: number
   collided: boolean
+  boss: Boss | null
+  /** Meters (see metersForDepth) at which the next boss fight triggers. */
+  nextBossMeters: number
   /** Append-only: kill/hit/blast/pickup events for the scene to react to.
    *  The renderer runs its own rAF loop, so it drains this incrementally
    *  (tracking how much it has already consumed) rather than the step
@@ -199,6 +253,8 @@ export function createWorld(): World {
     depth: 0,
     elapsed: 0,
     collided: false,
+    boss: null,
+    nextBossMeters: BOSS_INTERVAL_METERS,
     effects: [],
   }
 }
@@ -402,6 +458,94 @@ function detonateFusedMines(world: World) {
   if (detonated.size) world.threats = world.threats.filter((t) => !detonated.has(t.id))
 }
 
+/** A boss fight replaces everything else on screen: whatever threats,
+ *  enemy fire and power-ups were live get swept away so the only thing
+ *  left to deal with is the boss itself and what it throws. */
+function spawnBoss(world: World) {
+  world.threats = []
+  world.projectiles = []
+  world.powerups = []
+  const hp = BOSS_HP_MIN + Math.floor(Math.random() * (BOSS_HP_MAX - BOSS_HP_MIN + 1))
+  world.boss = {
+    id: world.nextId++,
+    x: BOARD_W / 2,
+    y: BOARD_H + SPAWN_MARGIN,
+    hp,
+    maxHp: hp,
+    phase: 'entering',
+    phaseT: 0,
+    attackIn: BOSS_ATTACK_MIN + Math.random() * (BOSS_ATTACK_MAX - BOSS_ATTACK_MIN),
+    mouthOpenT: 0,
+  }
+}
+
+/** A grid "squad" of 5, 10 or 15 ordinary mine threats, centered under the
+ *  boss and spawned from the same off-screen edge every other threat uses
+ *  — so despite coming from its mouth narratively, they cross the same
+ *  distance (and get the same proximity-fuse warning) as any other mine. */
+function spawnBossMineSquad(world: World, boss: Boss) {
+  const count = BOSS_MINE_SQUAD_SIZES[Math.floor(Math.random() * BOSS_MINE_SQUAD_SIZES.length)]
+  const rows = count / BOSS_MINE_COLS
+  const half = THREAT_SPEC.mine.r + THREAT_MARGIN
+  const totalWidth = BOSS_MINE_COL_SPACING * (BOSS_MINE_COLS - 1)
+  const startX = Math.max(half, Math.min(BOARD_W - half - totalWidth, boss.x - totalWidth / 2))
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < BOSS_MINE_COLS; col++) {
+      const x = startX + col * BOSS_MINE_COL_SPACING
+      world.threats.push({
+        id: world.nextId++,
+        type: 'mine',
+        x,
+        baseX: x,
+        y: BOARD_H + SPAWN_MARGIN + row * BOSS_MINE_ROW_SPACING,
+        phase: Math.random() * Math.PI * 2,
+        fireIn: 0,
+      })
+    }
+  }
+}
+
+/** Advances the boss's own little state machine: rise into view, then fight
+ *  (spitting a mine squad on a timer) until its hp runs out, then a short
+ *  explosion beat before it's gone for good and normal diving resumes. */
+function updateBoss(world: World, dt: number) {
+  const boss = world.boss
+  if (!boss) return
+  boss.phaseT += dt
+  boss.mouthOpenT = Math.max(0, boss.mouthOpenT - dt)
+
+  if (boss.phase === 'entering') {
+    boss.y = Math.max(BOSS_Y, boss.y - BOSS_ENTER_SPEED * dt)
+    if (boss.y <= BOSS_Y) {
+      boss.y = BOSS_Y
+      boss.phase = 'fighting'
+      boss.phaseT = 0
+    }
+    return
+  }
+
+  if (boss.phase === 'fighting') {
+    boss.attackIn -= dt
+    if (boss.attackIn <= 0) {
+      spawnBossMineSquad(world, boss)
+      boss.mouthOpenT = BOSS_MOUTH_OPEN_TIME
+      boss.attackIn = BOSS_ATTACK_MIN + Math.random() * (BOSS_ATTACK_MAX - BOSS_ATTACK_MIN)
+    }
+    return
+  }
+
+  // 'exploding': held just long enough for the scene to play the death
+  // burst, then gone — and diving resumes just past the milestone it took,
+  // not back at it, so the same distance doesn't immediately trigger again.
+  if (boss.phaseT >= BOSS_EXPLODE_TIME) {
+    const cleared = world.nextBossMeters
+    world.nextBossMeters += BOSS_INTERVAL_METERS
+    world.depth = (cleared + 1) * DEPTH_PER_METER
+    world.boss = null
+  }
+}
+
 export function step(world: World, dt: number, input: { fire: boolean }) {
   if (world.collided) return
 
@@ -417,9 +561,13 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
     if (world.weaponModeT <= 0) world.weaponMode = 'normal'
   }
 
-  // --- descent ----------------------------------------------------------
+  // --- descent: frozen for the duration of a boss fight, so the milestone
+  // counter holds still and difficulty doesn't keep climbing mid-fight -----
   const speed = speedForDepth(world.depth)
-  world.depth += speed * dt
+  if (!world.boss) {
+    world.depth += speed * dt
+    if (metersForDepth(world.depth) >= world.nextBossMeters) spawnBoss(world)
+  }
 
   // --- firing: the ultimate takes priority, then the shotgun buff -----------
   if (input.fire && world.fireCooldown <= 0) {
@@ -440,14 +588,17 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
     }
   }
 
-  // --- threat spawn/scroll -------------------------------------------------
-  world.spawnAccumulator += speed * dt
-  if (world.spawnAccumulator >= SPAWN_SPACING) {
-    world.spawnAccumulator -= SPAWN_SPACING
-    if (Math.random() < formationChance(world.depth)) {
-      spawnFormation(world, pickFormationType())
-    } else {
-      spawnThreat(world)
+  // --- threat spawn/scroll: suppressed during a boss fight — it replaces
+  // every other obstacle and enemy, not just adds to them --------------------
+  if (!world.boss) {
+    world.spawnAccumulator += speed * dt
+    if (world.spawnAccumulator >= SPAWN_SPACING) {
+      world.spawnAccumulator -= SPAWN_SPACING
+      if (Math.random() < formationChance(world.depth)) {
+        spawnFormation(world, pickFormationType())
+      } else {
+        spawnThreat(world)
+      }
     }
   }
 
@@ -472,6 +623,7 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   if (world.laserT > 0) world.laserX = world.subX
   laserSweep(world)
   detonateFusedMines(world)
+  updateBoss(world, dt)
 
   // --- missiles and enemy fire: generalized 2D travel, culled off any edge --
   for (const missile of world.missiles) {
@@ -486,11 +638,13 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   }
   world.projectiles = world.projectiles.filter((p) => inBounds(p.x, p.y))
 
-  // --- power-ups: spawn, scroll, pick up -------------------------------------
-  world.powerupAccumulator += speed * dt
-  if (world.powerupAccumulator >= POWERUP_SPACING) {
-    world.powerupAccumulator -= POWERUP_SPACING
-    spawnPowerup(world)
+  // --- power-ups: spawn, scroll, pick up (also suppressed during a boss) ----
+  if (!world.boss) {
+    world.powerupAccumulator += speed * dt
+    if (world.powerupAccumulator >= POWERUP_SPACING) {
+      world.powerupAccumulator -= POWERUP_SPACING
+      spawnPowerup(world)
+    }
   }
   for (const powerup of world.powerups) powerup.y -= speed * dt
   world.powerups = world.powerups.filter((p) => p.y > -CULL_MARGIN)
@@ -517,6 +671,18 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   const spentMissiles = new Set<number>()
   for (const missile of world.missiles) {
     if (spentMissiles.has(missile.id)) continue
+    if (world.boss && world.boss.phase === 'fighting' && circlesOverlap(missile.x, missile.y, MISSILE_R, world.boss.x, world.boss.y, BOSS_R)) {
+      spentMissiles.add(missile.id)
+      world.boss.hp -= 1
+      world.effects.push({ x: missile.x, y: missile.y, kind: 'hit' })
+      if (world.boss.hp <= 0) {
+        world.boss.phase = 'exploding'
+        world.boss.phaseT = 0
+        world.killPoints += BOSS_KILL_POINTS
+        world.effects.push({ x: world.boss.x, y: world.boss.y, kind: 'blast' })
+      }
+      continue
+    }
     for (const threat of world.threats) {
       if (threat.type === 'tentacle' || deadThreats.has(threat.id)) continue
       const spec = THREAT_SPEC[threat.type]
@@ -534,8 +700,12 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
 
   // --- threat / projectile vs sub --------------------------------------------
   if (world.invincibleT <= 0) {
-    let hit = false
+    let hit =
+      world.boss !== null &&
+      world.boss.phase !== 'exploding' &&
+      circlesOverlap(world.subX, SUB_Y, SUB_R, world.boss.x, world.boss.y, BOSS_R)
     for (const threat of world.threats) {
+      if (hit) break
       if (threat.type === 'tentacle') {
         const reach = threat.reach ?? 0
         const yOverlap = Math.abs(SUB_Y - threat.y) < TENTACLE_THICKNESS / 2 + SUB_R

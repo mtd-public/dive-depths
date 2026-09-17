@@ -2,8 +2,10 @@ import * as THREE from 'three'
 import {
   BOARD_H,
   BOARD_W,
+  BOSS_EXPLODE_TIME,
   LASER_HALF_WIDTH,
   SUB_Y,
+  type Boss,
   type Effect,
   type Missile,
   type Powerup,
@@ -44,6 +46,20 @@ const upAxis = new THREE.Vector3(0, 1, 0)
 const PLAYER_BULLET_COLOR = 0xff8c1a
 const ENEMY_BULLET_COLOR = 0xff2222
 const BULLET_SPRITE_SIZE = 20
+
+// The boss, like the bullets, keeps a fixed look regardless of the depth
+// palette — it's a one-off dramatic set-piece, not part of the ambient
+// scenery that's meant to shift as the water darkens.
+const BOSS_BODY_COLOR = 0x150a10
+const BOSS_JAW_COLOR = 0xc21422
+const BOSS_EYE_COLOR = 0xd4001f
+// A vast, mostly-implied creature: eyes out near the left/right edges of
+// the board and a mouth that gapes wide in the middle, all far bigger than
+// the small BOSS_R hit-circle it's actually collided against — the same
+// "mostly off-screen, only the parts breaking the surface are modeled"
+// trick the hazard tentacle's implied Loch-Ness body already uses.
+const BOSS_SPAN = BOARD_W * 0.9
+const BOSS_MOUTH_MAX_WIDTH = BOARD_W * 0.6
 
 function seededRandom(seed: number) {
   let s = seed % 2147483647
@@ -172,6 +188,10 @@ interface Materials {
   mineShell: THREE.MeshStandardMaterial
   mineSpike: THREE.MeshStandardMaterial
   mineLamp: THREE.MeshStandardMaterial
+  /** Fixed colors, not palette-driven (see BOSS_*_COLOR above). */
+  bossBody: THREE.MeshStandardMaterial
+  bossJaw: THREE.MeshStandardMaterial
+  bossEye: THREE.MeshStandardMaterial
   /** Bullet sprite materials, split by who fired them — always at full
    *  visibility regardless of depth, since a dodgeable projectile has to
    *  read clearly at any depth. Player missiles use `playerBulletSprite`;
@@ -212,6 +232,9 @@ function makeMaterials(p: Palette): Materials {
     mineShell: flat(p.mineShell, { metalness: p.metalness * 0.5, roughness: 0.8 }),
     mineSpike: flat(p.mineSpike, { metalness: p.metalness, roughness: 0.45 }),
     mineLamp: flat(p.mineLamp, { emissive: p.mineLamp, emissiveIntensity: p.mineLampGlow, roughness: 0.4 }),
+    bossBody: flat(BOSS_BODY_COLOR, { roughness: 0.7 }),
+    bossJaw: flat(BOSS_JAW_COLOR, { emissive: BOSS_JAW_COLOR, emissiveIntensity: 1.1, roughness: 0.6 }),
+    bossEye: flat(BOSS_EYE_COLOR, { emissive: BOSS_EYE_COLOR, emissiveIntensity: 2.6, roughness: 0.3 }),
     // Normal (not additive) blending: the water background is often bright,
     // not black, and additive blending on a near-opaque sprite just clips
     // straight to white against it, erasing the color entirely. Plain alpha
@@ -653,6 +676,115 @@ function buildThreatView(threat: Threat, m: Materials): ThreatView {
 }
 
 /* ---------------------------------------------------------------
+   Boss — a big Loch-Ness-style head with glowing eyes, a mouth that opens
+   to spit its mine squads, and three purely decorative tentacles trailing
+   into the background. No `side`/`reach` targeting like the hazard
+   tentacle above — these just sway for atmosphere, with no collision.
+--------------------------------------------------------------- */
+interface BossView {
+  group: THREE.Group
+  /** A group (jaw + teeth together) so opening it is a single scale. */
+  mouth: THREE.Group
+  tentacles: THREE.Group[]
+}
+
+/** A short tapering chain of cylinder segments, the same construction as
+ *  the hazard tentacle's, curling out from `origin` in direction `dir` and
+ *  gently arcing toward -z so it reads as trailing into the background. */
+function buildDecorativeTentacle(m: Materials, origin: THREE.Vector3, dir: THREE.Vector2, rand: () => number): THREE.Group {
+  const group = new THREE.Group()
+  const SEGMENTS = 5
+  const length = 60 + rand() * 20
+  const points: THREE.Vector3[] = []
+  for (let i = 0; i <= SEGMENTS; i++) {
+    const t = i / SEGMENTS
+    points.push(
+      origin
+        .clone()
+        .add(new THREE.Vector3(dir.x * length * t, dir.y * length * t + Math.sin(t * Math.PI * 1.6) * 14, -t * 46)),
+    )
+  }
+  for (let i = 0; i < SEGMENTS; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    const mid = a.clone().add(b).multiplyScalar(0.5)
+    const len = a.distanceTo(b)
+    const rTop = 8 * (1 - i / SEGMENTS) + 2
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(rTop * 0.6, rTop * 0.45, len * 1.15, 6), m.tentacleBody)
+    seg.position.copy(mid)
+    seg.quaternion.setFromUnitVectors(upAxis, b.clone().sub(a).normalize())
+    group.add(seg)
+    if (i % 2 === 1) {
+      const sucker = new THREE.Mesh(new THREE.SphereGeometry(rTop * 0.3, 6, 5), m.tentacleSucker)
+      sucker.position.copy(mid).add(new THREE.Vector3(0, 0, rTop * 0.5))
+      group.add(sucker)
+    }
+  }
+  return group
+}
+
+const BOSS_TENTACLE_COUNT = 6
+
+function buildBossView(m: Materials): BossView {
+  const group = new THREE.Group()
+  const rand = seededRandom(1)
+  const halfSpan = BOSS_SPAN / 2
+
+  // The body itself stays implied — a vast dark mass wider than the visible
+  // board, mostly off the bottom edge, the same "only what breaks the
+  // surface is modeled" trick the hazard tentacle's Loch-Ness body uses.
+  const mass = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), m.bossBody)
+  mass.scale.set(halfSpan * 1.05, 46, 30)
+  mass.position.set(0, -10, -14)
+  group.add(mass)
+
+  // The mouth: jaw cavity plus a row of teeth top and bottom, grouped so
+  // opening it (scale.x/scale.y grow in updateBoss) moves everything
+  // together — teeth included, purely decorative, never part of collision.
+  const mouth = new THREE.Group()
+  const jaw = new THREE.Mesh(new THREE.BoxGeometry(BOSS_MOUTH_MAX_WIDTH, 34, 22), m.bossJaw)
+  mouth.add(jaw)
+  const toothGeo = new THREE.ConeGeometry(5, 14, 4)
+  const toothCount = 11
+  for (let i = 0; i < toothCount; i++) {
+    const tx = (i / (toothCount - 1) - 0.5) * (BOSS_MOUTH_MAX_WIDTH - 20)
+    const top = new THREE.Mesh(toothGeo, m.eyeWhite)
+    top.position.set(tx, 13, 0)
+    top.rotation.z = Math.PI
+    mouth.add(top)
+    const bottom = new THREE.Mesh(toothGeo, m.eyeWhite)
+    bottom.position.set(tx + (BOSS_MOUTH_MAX_WIDTH / toothCount / 2), -13, 0)
+    mouth.add(bottom)
+  }
+  mouth.position.set(0, -20, 4)
+  mouth.scale.set(0.08, 0.25, 0.85)
+  group.add(mouth)
+
+  // Large glowing dark-red eyes, out near the left and right edges of the
+  // board rather than close together on a compact head.
+  for (const s of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.IcosahedronGeometry(15, 1), m.bossEye)
+    eye.position.set(s * (halfSpan - 24), 30, 6)
+    group.add(eye)
+  }
+
+  // Six decorative tentacles branching off the mass, spread across its
+  // width and trailing into the background — never part of collision.
+  const tentacles: THREE.Group[] = []
+  for (let i = 0; i < BOSS_TENTACLE_COUNT; i++) {
+    const t = i / (BOSS_TENTACLE_COUNT - 1)
+    const originX = -halfSpan * 0.85 + t * halfSpan * 1.7
+    const origin = new THREE.Vector3(originX, -4 + (i % 2 === 0 ? 10 : -6), -6)
+    const dir = new THREE.Vector2(Math.sin((t - 0.5) * 1.4) * 0.6, 0.55 + (i % 2) * 0.3)
+    const tentacle = buildDecorativeTentacle(m, origin, dir, rand)
+    group.add(tentacle)
+    tentacles.push(tentacle)
+  }
+
+  return { group, mouth, tentacles }
+}
+
+/* ---------------------------------------------------------------
    Power-ups — a shotgun burst-shaped pickup and a laser crystal shard.
 --------------------------------------------------------------- */
 function buildShotgunPickup(m: Materials): THREE.Group {
@@ -767,6 +899,7 @@ export class Scene3D {
   private missileViews = new Map<number, THREE.Object3D>()
   private projectileViews = new Map<number, THREE.Object3D>()
   private powerupViews = new Map<number, THREE.Group>()
+  private bossView: BossView | null = null
   private laserBeam: LaserBeam
   private bubbleMesh: THREE.InstancedMesh
   private bubbles: Bubble[] = []
@@ -1014,6 +1147,51 @@ export class Scene3D {
     }
   }
 
+  /** Builds/tears down the boss's view as it appears and disappears, and
+   *  animates the parts physics.ts doesn't otherwise drive: the mouth
+   *  opening as a fire telegraph, an idle sway, the three decorative
+   *  tentacles, and a shrink-to-nothing over its explosion beat. */
+  private updateBoss(boss: Boss | null, now: number) {
+    if (!boss) {
+      if (this.bossView) {
+        this.scene.remove(this.bossView.group)
+        this.bossView.group.traverse((child) => {
+          if (child instanceof THREE.Mesh) child.geometry.dispose()
+        })
+        this.bossView = null
+      }
+      return
+    }
+    if (!this.bossView) {
+      this.bossView = buildBossView(this.materials)
+      this.scene.add(this.bossView.group)
+    }
+    const view = this.bossView
+
+    view.group.position.set(boardXToWorld(boss.x), boardYToWorld(boss.y), 15)
+    view.group.rotation.z = Math.sin(now * 0.8) * 0.05
+    view.group.rotation.y = Math.sin(now * 0.5) * 0.08
+
+    // Closed, the mouth is a thin centered slit; opening widens it toward
+    // BOSS_MOUTH_MAX_WIDTH (see the jaw's own geometry, built at that full
+    // width already) and only modestly taller, so it reads as gaping open
+    // rather than inflating into a ball.
+    const openK = boss.mouthOpenT > 0 ? Math.min(1, boss.mouthOpenT * 4) : 0
+    view.mouth.scale.x = 0.08 + openK * 0.92
+    view.mouth.scale.y = 0.25 + openK * 0.75
+
+    const pulse = 1.8 + Math.sin(now * 3) * 0.5 + openK * 1.4
+    this.materials.bossEye.emissiveIntensity = pulse
+
+    view.tentacles.forEach((tentacle, i) => {
+      tentacle.rotation.z = Math.sin(now * 0.7 + i * 1.3) * 0.18
+      tentacle.rotation.y = Math.sin(now * 0.5 + i * 2.1) * 0.14
+    })
+
+    const shrink = boss.phase === 'exploding' ? Math.max(0, 1 - boss.phaseT / BOSS_EXPLODE_TIME) : 1
+    view.group.scale.setScalar(shrink)
+  }
+
   /** The beam is a fixed box toggled visible and repositioned only on x —
    *  see LASER_BEAM_TOP/BOTTOM for why y is fixed. It's a sustained 15s
    *  weapon now, not an instant flash, so it stays at full strength for the
@@ -1124,6 +1302,7 @@ export class Scene3D {
     this.syncMissiles(world, now)
     this.syncProjectiles(world, now)
     this.syncPowerups(world, dt, now)
+    this.updateBoss(world.boss, now)
     this.updateLaser(world, now)
     this.updateSub(world, phase, dt, now)
     this.updateBubbles(dt, now)
@@ -1150,6 +1329,7 @@ export class Scene3D {
     this.projectileViews.clear()
     for (const view of this.powerupViews.values()) this.scene.remove(view)
     this.powerupViews.clear()
+    if (this.bossView) this.scene.remove(this.bossView.group)
     this.renderer.dispose()
   }
 }
