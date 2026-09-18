@@ -627,8 +627,16 @@ stays accurate.
 and drives a new `'won'` `GamePhase` with its own "The Kracken falls!"
 victory screen (`GameOverlay`), reusing the existing "Dive again" flow.
 
-**Testing shortcut**: `KRACKEN_TEST_AS_FIRST_BOSS` (currently `true`) swaps
-the Kracken in for the very first boss encounter of a run, regardless of
-distance, so the fight and win condition can be reached quickly without
-diving to the real 20,000-league threshold. Every boss after the first
-still follows the normal 20,000-league rule.
+**Testing shortcut**: `KRACKEN_TEST_AS_FIRST_BOSS` swaps the Kracken in for
+the very first boss encounter of a run, regardless of distance, so the
+fight and win condition can be reached quickly without diving to the real
+20,000-league threshold. Every boss after the first still follows the
+normal 20,000-league rule.
+
+## Kracken test shortcut turned off, on `feature/kracken-test-off`
+
+`KRACKEN_TEST_AS_FIRST_BOSS` flipped from `true` to `false` now that the
+Kracken fight and win condition have been playtested — the first boss
+encounter of a run is a normal boss again, and the Kracken only appears at
+the genuine 20,000-league milestone (and on every boss fight past it).
+Nothing else about the Kracken, extra lives, or the win condition changed.
