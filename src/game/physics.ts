@@ -107,10 +107,10 @@ export function leaguesForDepth(depth: number): number {
 // The Kracken: a special orange variant of the boss, guaranteed at 20,000
 // leagues and on every boss encounter past it — a much tougher, richer
 // encounter than a normal fight, and the game's win condition rather than
-// just another milestone. Set true so the very first boss fight (at
-// BOSS_INTERVAL_LEAGUES) swaps in a Kracken for testing purposes; flip to
-// false once the real 20,000-league encounter no longer needs a shortcut.
-export const KRACKEN_TEST_AS_FIRST_BOSS = true
+// just another milestone. This shortcut swapped it into the very first
+// boss fight for early testing; now that the real encounter is verified,
+// it's off, so only the genuine 20,000-league milestone triggers it.
+export const KRACKEN_TEST_AS_FIRST_BOSS = false
 export const KRACKEN_LEAGUES = 20000
 const KRACKEN_HP = 40
 const KRACKEN_KILL_POINTS = 1000
