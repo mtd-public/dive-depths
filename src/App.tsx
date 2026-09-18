@@ -41,9 +41,9 @@ export default function App() {
           <GameCanvas world={world} phase={state.phase} />
           <div className="depth-badge">
             <span className="depth-badge__label">Distance</span>
-            <span className="depth-badge__value">{state.distance}m</span>
+            <span className="depth-badge__value">{state.distance}L</span>
           </div>
-          <BossBanner active={state.bossActive} hpFrac={state.bossHpFrac} />
+          <BossBanner active={state.bossActive} hpFrac={state.bossHpFrac} variant={state.bossVariant} />
           <WeaponBadge
             world={world}
             shotgunT={state.shotgunT}

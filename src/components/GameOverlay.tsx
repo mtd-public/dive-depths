@@ -11,7 +11,7 @@ interface GameOverlayProps {
 }
 
 export function GameOverlay({ phase, score, best, onStart, onResume, onNewGame }: GameOverlayProps) {
-  const visible = phase === 'ready' || phase === 'paused' || phase === 'over'
+  const visible = phase === 'ready' || phase === 'paused' || phase === 'over' || phase === 'won'
 
   return (
     <AnimatePresence>
@@ -53,6 +53,18 @@ export function GameOverlay({ phase, score, best, onStart, onResume, onNewGame }
             {phase === 'over' && (
               <>
                 <h2>Hull breached</h2>
+                <p>
+                  Score: {score.toLocaleString()}
+                  {score >= best && score > 0 ? ' — new best!' : ` · Best: ${best.toLocaleString()}`}
+                </p>
+                <button type="button" className="btn btn--primary" onClick={onNewGame}>
+                  Dive again
+                </button>
+              </>
+            )}
+            {phase === 'won' && (
+              <>
+                <h2>The Kracken falls!</h2>
                 <p>
                   Score: {score.toLocaleString()}
                   {score >= best && score > 0 ? ' — new best!' : ` · Best: ${best.toLocaleString()}`}

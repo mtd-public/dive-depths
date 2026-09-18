@@ -351,6 +351,31 @@ button {
   }
 }
 
+/* The Kracken: same banner, an orange accent in place of the usual red. */
+.boss-banner--kracken {
+  background: rgba(58, 26, 3, 0.55);
+  border-color: rgba(255, 154, 40, 0.55);
+  animation-name: boss-banner-pulse-kracken;
+}
+
+.boss-banner--kracken .boss-banner__label {
+  color: #ffd9a0;
+}
+
+.boss-banner--kracken .boss-banner__ring-fg {
+  stroke: #ff8c1a;
+}
+
+@keyframes boss-banner-pulse-kracken {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(255, 140, 26, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(255, 140, 26, 0.6);
+  }
+}
+
 .game-canvas {
   display: block;
   width: 100%;

@@ -588,3 +588,47 @@ color. Bullets look identical — their material is unlit (`MeshBasicMaterial`),
 so the light only ever affected *other* nearby surfaces, never the bullet's
 own appearance, and the sprite's baked-in glow (`bulletOrbTexture`'s ring
 and hot core) already reads as "glowing" without an actual light behind it.
+
+## Leagues, the Kracken, and a win condition, on `feature/kracken-leagues`
+
+Distance is now measured in **leagues** ("L" in the HUD), not meters —
+`metersForDepth` renamed to `leaguesForDepth`, `BOSS_INTERVAL_METERS` to
+`BOSS_INTERVAL_LEAGUES`, `World.nextBossMeters` to `nextBossLeagues`. Same
+math (`DEPTH_PER_LEAGUE = 10`, an integer divisor for the same
+floating-point-safety reason as before), just relabeled.
+
+**The Kracken**: a special orange variant boss, guaranteed at 20,000
+leagues (`KRACKEN_LEAGUES`) and on every boss encounter from there on. It
+gets its own fixed-color materials (never shared with the normal boss's —
+`krackenBody`/`krackenJaw`/`krackenEye`/`krackenTentacleBody`/
+`krackenTentacleSucker` in scene3d.ts) so the two variants can't fight over
+shared material state, a much bigger health pool (`KRACKEN_HP = 40` vs. a
+normal boss's 15-20), and far more tentacles (16 vs. 6) trailing off its
+mass for a busier, more overwhelming silhouette. The "BOSS FIGHT" banner
+swaps to **"KRACKEN FIGHT"** with an orange accent (`BossBanner`'s new
+`variant` prop) whenever it's active.
+
+Because a boss fight otherwise suppresses *all* power-up spawning, the
+Kracken fight runs its own drip-fed power-up timer (`spawnKrackenPowerup`,
+every 2.5-4s) skewed hard toward health and the new extra-life pickup —
+"lots of health and power-ups" for a fight that's a lot tougher than a
+normal one.
+
+**Extra life**: a new `'extraLife'` `PowerupType`, rare in the general pool
+and common in the Kracken's — a gold five-pointed-star pickup
+(`buildExtraLifePickup`) that adds a life **uncapped**, unlike the existing
+`'health'` type which tops back up to `LIVES_MAX`. `World.lives` can now
+exceed `LIVES_MAX`; the lives-ring visual (built with a fixed segment
+count) just caps out at "fully lit" past that point, while the numeric HUD
+stays accurate.
+
+**Winning**: defeating the Kracken — in any instance — sets a new
+`World.gameWon` flag, which freezes `step()` the same way `collided` does,
+and drives a new `'won'` `GamePhase` with its own "The Kracken falls!"
+victory screen (`GameOverlay`), reusing the existing "Dive again" flow.
+
+**Testing shortcut**: `KRACKEN_TEST_AS_FIRST_BOSS` (currently `true`) swaps
+the Kracken in for the very first boss encounter of a run, regardless of
+distance, so the fight and win condition can be reached quickly without
+diving to the real 20,000-league threshold. Every boss after the first
+still follows the normal 20,000-league rule.

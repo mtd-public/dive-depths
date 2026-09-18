@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 import type { GameState } from './types'
-import { createWorld, LIVES_MAX, metersForDepth, score, steerLeft, steerRight, step, type World } from './physics'
+import {
+  createWorld,
+  LIVES_MAX,
+  leaguesForDepth,
+  score,
+  steerLeft,
+  steerRight,
+  step,
+  type BossVariant,
+  type World,
+} from './physics'
 
 const BEST_KEY = 'dive-depths-best'
 
@@ -32,6 +42,7 @@ function initialState(): GameState {
     laserActiveT: 0,
     bossActive: false,
     bossHpFrac: 0,
+    bossVariant: null,
   }
 }
 
@@ -48,8 +59,10 @@ type Action =
       laserActiveT: number
       bossActive: boolean
       bossHpFrac: number
+      bossVariant: BossVariant | null
     }
   | { type: 'GAME_OVER'; score: number }
+  | { type: 'GAME_WON'; score: number }
   | { type: 'NEW_GAME' }
 
 function reducer(state: GameState, action: Action): GameState {
@@ -74,6 +87,7 @@ function reducer(state: GameState, action: Action): GameState {
             laserActiveT: action.laserActiveT,
             bossActive: action.bossActive,
             bossHpFrac: action.bossHpFrac,
+            bossVariant: action.bossVariant,
           }
         : state
 
@@ -90,6 +104,24 @@ function reducer(state: GameState, action: Action): GameState {
         laserActiveT: 0,
         bossActive: false,
         bossHpFrac: 0,
+        bossVariant: null,
+        best,
+      }
+    }
+
+    case 'GAME_WON': {
+      const best = Math.max(state.best, action.score)
+      if (best > state.best) saveBest(best)
+      return {
+        ...state,
+        phase: 'won',
+        score: action.score,
+        shotgunT: 0,
+        laserReady: false,
+        laserActiveT: 0,
+        bossActive: false,
+        bossHpFrac: 0,
+        bossVariant: null,
         best,
       }
     }
@@ -124,6 +156,7 @@ export function useGameEngine() {
     laserActiveT: 0,
     bossActive: false,
     bossHpFrac: 0,
+    bossVariant: null as BossVariant | null,
   })
   phaseRef.current = state.phase
 
@@ -152,6 +185,7 @@ export function useGameEngine() {
       laserActiveT: 0,
       bossActive: false,
       bossHpFrac: 0,
+      bossVariant: null,
     }
     dispatch({ type: 'NEW_GAME' })
   }, [])
@@ -171,16 +205,19 @@ export function useGameEngine() {
 
         if (world.collided) {
           dispatch({ type: 'GAME_OVER', score: score(world) })
+        } else if (world.gameWon) {
+          dispatch({ type: 'GAME_WON', score: score(world) })
         } else {
           const next = {
             score: score(world),
             lives: world.lives,
-            distance: metersForDepth(world.depth),
+            distance: leaguesForDepth(world.depth),
             shotgunT: world.weaponMode === 'shotgun' ? Math.ceil(world.weaponModeT) : 0,
             laserReady: world.laserCharges > 0,
             laserActiveT: world.laserT > 0 ? Math.ceil(world.laserT) : 0,
             bossActive: world.boss !== null,
             bossHpFrac: world.boss ? world.boss.hp / world.boss.maxHp : 0,
+            bossVariant: world.boss ? world.boss.variant : null,
           }
           const prev = lastTickRef.current
           if (
@@ -191,7 +228,8 @@ export function useGameEngine() {
             next.laserReady !== prev.laserReady ||
             next.laserActiveT !== prev.laserActiveT ||
             next.bossActive !== prev.bossActive ||
-            next.bossHpFrac !== prev.bossHpFrac
+            next.bossHpFrac !== prev.bossHpFrac ||
+            next.bossVariant !== prev.bossVariant
           ) {
             lastTickRef.current = next
             dispatch({ type: 'TICK', ...next })

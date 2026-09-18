@@ -1,11 +1,13 @@
-export type GamePhase = 'ready' | 'playing' | 'paused' | 'over'
+import type { BossVariant } from './physics'
+
+export type GamePhase = 'ready' | 'playing' | 'paused' | 'over' | 'won'
 
 export interface GameState {
   phase: GamePhase
   score: number
   best: number
   lives: number
-  /** Meters dived (see metersForDepth in physics.ts) — holds still for the
+  /** Leagues dived (see leaguesForDepth in physics.ts) — holds still for the
    *  duration of a boss fight rather than climbing every frame. */
   distance: number
   /** Seconds left on the shotgun buff, 0 when not active. */
@@ -17,4 +19,6 @@ export interface GameState {
   bossActive: boolean
   /** 0-1 remaining boss health, only meaningful while bossActive. */
   bossHpFrac: number
+  /** Which boss is currently active, only meaningful while bossActive. */
+  bossVariant: BossVariant | null
 }

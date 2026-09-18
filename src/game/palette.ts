@@ -42,6 +42,8 @@ export interface Palette {
   powerupLaserGlow: number
   powerupHealthBody: number
   powerupHealthGlow: number
+  powerupExtraLifeBody: number
+  powerupExtraLifeGlow: number
   laserBeamCore: number
   laserBeamGlow: number
   explosionCore: number
@@ -86,6 +88,8 @@ const SURFACE: Palette = {
   powerupLaserGlow: 0xaef9ff,
   powerupHealthBody: 0x4caf6a,
   powerupHealthGlow: 0x9dffb8,
+  powerupExtraLifeBody: 0xffcc33,
+  powerupExtraLifeGlow: 0xfff2b0,
   laserBeamCore: 0xffffff,
   laserBeamGlow: 0x7ad7ff,
   explosionCore: 0xffe9a8,
@@ -130,6 +134,8 @@ const DEEP: Palette = {
   powerupLaserGlow: 0xd9baff,
   powerupHealthBody: 0x2f7a48,
   powerupHealthGlow: 0x6dffa0,
+  powerupExtraLifeBody: 0xd4af00,
+  powerupExtraLifeGlow: 0xffe97a,
   laserBeamCore: 0xeaffff,
   laserBeamGlow: 0xb388ff,
   explosionCore: 0xffe9a8,
@@ -204,6 +210,8 @@ export function paletteAt(t: number): Palette {
     powerupLaserGlow: mixHex(SURFACE.powerupLaserGlow, DEEP.powerupLaserGlow, k),
     powerupHealthBody: mixHex(SURFACE.powerupHealthBody, DEEP.powerupHealthBody, k),
     powerupHealthGlow: mixHex(SURFACE.powerupHealthGlow, DEEP.powerupHealthGlow, k),
+    powerupExtraLifeBody: mixHex(SURFACE.powerupExtraLifeBody, DEEP.powerupExtraLifeBody, k),
+    powerupExtraLifeGlow: mixHex(SURFACE.powerupExtraLifeGlow, DEEP.powerupExtraLifeGlow, k),
     laserBeamCore: mixHex(SURFACE.laserBeamCore, DEEP.laserBeamCore, k),
     laserBeamGlow: mixHex(SURFACE.laserBeamGlow, DEEP.laserBeamGlow, k),
     explosionCore: mixHex(SURFACE.explosionCore, DEEP.explosionCore, k),
