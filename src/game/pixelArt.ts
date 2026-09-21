@@ -73,9 +73,9 @@ export const WATER_PALETTES: Record<'blue' | 'green' | 'purple' | 'red', WaterPa
   red: { label: 'Vent Crimson', bands: ['#4f2326', '#3c1a1e', '#2a1216', '#180a0d'] },
 }
 
-/** The water changes every 5000 leagues, cycling blue → green → purple → red. */
+/** The water changes every 5000 leagues, cycling green → blue → purple → red. */
 export const WATER_CYCLE_LEAGUES = 5000
-export const WATER_ORDER: (keyof typeof WATER_PALETTES)[] = ['blue', 'green', 'purple', 'red']
+export const WATER_ORDER: (keyof typeof WATER_PALETTES)[] = ['green', 'blue', 'purple', 'red']
 
 export function waterAt(leagues: number): WaterPalette {
   const i = Math.floor(Math.max(0, leagues) / WATER_CYCLE_LEAGUES) % WATER_ORDER.length
