@@ -1,5 +1,15 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { GameState } from './types'
+import {
+  ACHIEVEMENTS,
+  LASER_MARATHON_SECONDS,
+  PACIFISM_LEAGUES,
+  SHOTGUN_SHAKEDOWN_SECONDS,
+  loadUnlocked,
+  unlock,
+  type Achievement,
+  type AchievementId,
+} from './achievements'
 import {
   createWorld,
   LIVES_MAX,
@@ -13,6 +23,13 @@ import {
 } from './physics'
 
 const BEST_KEY = 'dive-depths-best'
+
+export interface AchievementToast {
+  key: number
+  achievement: Achievement
+}
+
+const TOAST_LIFETIME_MS = 4500
 
 function loadBest(): number {
   try {
@@ -160,6 +177,27 @@ export function useGameEngine() {
   })
   phaseRef.current = state.phase
 
+  const unlockedRef = useRef<Set<AchievementId>>(loadUnlocked())
+  const [unlockedAchievements, setUnlockedAchievements] = useState(unlockedRef.current)
+  const [achievementToasts, setAchievementToasts] = useState<AchievementToast[]>([])
+  const toastKeyRef = useRef(0)
+
+  const announceUnlock = useCallback((id: AchievementId) => {
+    if (!unlock(unlockedRef.current, id)) return
+    setUnlockedAchievements(new Set(unlockedRef.current))
+    const achievement = ACHIEVEMENTS.find((a) => a.id === id)
+    if (!achievement) return
+    const key = toastKeyRef.current++
+    setAchievementToasts((toasts) => [...toasts, { key, achievement }])
+    setTimeout(() => {
+      setAchievementToasts((toasts) => toasts.filter((t) => t.key !== key))
+    }, TOAST_LIFETIME_MS)
+  }, [])
+
+  const dismissToast = useCallback((key: number) => {
+    setAchievementToasts((toasts) => toasts.filter((t) => t.key !== key))
+  }, [])
+
   const doSteerLeft = useCallback(() => {
     if (phaseRef.current === 'playing') steerLeft(worldRef.current)
   }, [])
@@ -203,6 +241,11 @@ export function useGameEngine() {
         step(world, dt, inputRef.current)
         inputRef.current.fire = false
 
+        if (world.gameWon) announceUnlock('krackenSlayer')
+        if (world.pacifist && leaguesForDepth(world.depth) >= PACIFISM_LEAGUES) announceUnlock('pacifism')
+        if (world.laserActiveTotal >= LASER_MARATHON_SECONDS) announceUnlock('laserMarathon')
+        if (world.shotgunActiveTotal >= SHOTGUN_SHAKEDOWN_SECONDS) announceUnlock('shotgunShakedown')
+
         if (world.collided) {
           dispatch({ type: 'GAME_OVER', score: score(world) })
         } else if (world.gameWon) {
@@ -242,7 +285,7 @@ export function useGameEngine() {
 
     raf = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(raf)
-  }, [])
+  }, [announceUnlock])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -277,5 +320,17 @@ export function useGameEngine() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [doSteerLeft, doSteerRight, fire, start, togglePause])
 
-  return { state, world: worldRef, steerLeft: doSteerLeft, steerRight: doSteerRight, fire, start, togglePause, newGame }
+  return {
+    state,
+    world: worldRef,
+    steerLeft: doSteerLeft,
+    steerRight: doSteerRight,
+    fire,
+    start,
+    togglePause,
+    newGame,
+    unlockedAchievements,
+    achievementToasts,
+    dismissToast,
+  }
 }

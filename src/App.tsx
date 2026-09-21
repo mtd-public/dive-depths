@@ -1,3 +1,5 @@
+import { Achievements } from './components/Achievements'
+import { AchievementToasts } from './components/AchievementToasts'
 import { BossBanner } from './components/BossBanner'
 import { GameCanvas } from './components/GameCanvas'
 import { GameOverlay } from './components/GameOverlay'
@@ -8,11 +10,24 @@ import { useGameEngine } from './game/useGameEngine'
 import { useBoardControls } from './hooks/useBoardControls'
 
 export default function App() {
-  const { state, world, steerLeft, steerRight, fire, start, togglePause, newGame } = useGameEngine()
+  const {
+    state,
+    world,
+    steerLeft,
+    steerRight,
+    fire,
+    start,
+    togglePause,
+    newGame,
+    unlockedAchievements,
+    achievementToasts,
+    dismissToast,
+  } = useGameEngine()
   const controls = useBoardControls({ onSwipeLeft: steerLeft, onSwipeRight: steerRight, onTap: fire })
 
   return (
     <div className="app">
+      <AchievementToasts toasts={achievementToasts} onDismiss={dismissToast} />
       <header className="topbar">
         <h1 className="wordmark">Dive Depths</h1>
         <div className="topbar__stats">
@@ -24,6 +39,7 @@ export default function App() {
           </span>
         </div>
         <div className="topbar__actions">
+          <Achievements unlocked={unlockedAchievements} />
           <KeyboardHelp />
           <button
             type="button"
