@@ -383,6 +383,9 @@ button {
   background: var(--board-bg);
   cursor: pointer;
   touch-action: none;
+  /* The renderer draws at a fixed 256x512 internal resolution; keep the
+     upscale chunky instead of letting the browser smooth it. */
+  image-rendering: pixelated;
 }
 
 /* ---------- Stats sidebar (score/lives + best) ---------- */

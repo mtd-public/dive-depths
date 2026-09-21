@@ -45,7 +45,7 @@ const SUB_FIRE_MAX = 3.2
 // many units of the sub's row it auto-detonates and sprays shrapnel in an
 // 8-way ring — a proximity fuse, not a contact fuse. Shooting one first is a
 // clean kill (points, no shrapnel); letting it get close is the risk.
-const MINE_FUSE_RANGE = 230
+export const MINE_FUSE_RANGE = 230
 const MINE_BULLET_SPEED = 190
 const MINE_BULLET_R = 6
 const MINE_BULLET_COUNT = 8
@@ -54,7 +54,7 @@ const MINE_BULLET_COUNT = 8
 // but one-sided, so there's always clear water on the other edge to dodge
 // into rather than a gap to thread. Kept short: it's a hazard to steer
 // around, not a wall that eats most of the board.
-const TENTACLE_THICKNESS = 90
+export const TENTACLE_THICKNESS = 90
 const TENTACLE_REACH_MIN = BOARD_W * 0.32
 const TENTACLE_REACH_MAX = BOARD_W * 0.48
 
