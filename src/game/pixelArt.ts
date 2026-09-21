@@ -56,6 +56,32 @@ export const PALETTE: Record<string, string> = {
   wetsuit: '#1c2830',
 }
 
+/**
+ * Water background ramps, four bands each, surface-light to depth-dark.
+ * These are the scene-clear colors a renderer paints behind everything;
+ * sprites are tuned to read against all four.
+ */
+export interface WaterPalette {
+  label: string
+  bands: [string, string, string, string]
+}
+
+export const WATER_PALETTES: Record<'blue' | 'green' | 'purple' | 'red', WaterPalette> = {
+  blue: { label: 'Abyssal Blue', bands: ['#1b5352', '#133a40', '#10333a', '#0d242b'] },
+  green: { label: 'Kelp Green', bands: ['#215c3d', '#17462e', '#113522', '#0b2318'] },
+  purple: { label: 'Drowned Violet', bands: ['#443157', '#332343', '#251933', '#170f22'] },
+  red: { label: 'Vent Crimson', bands: ['#4f2326', '#3c1a1e', '#2a1216', '#180a0d'] },
+}
+
+/** The water changes every 5000 leagues, cycling blue → green → purple → red. */
+export const WATER_CYCLE_LEAGUES = 5000
+export const WATER_ORDER: (keyof typeof WATER_PALETTES)[] = ['blue', 'green', 'purple', 'red']
+
+export function waterAt(leagues: number): WaterPalette {
+  const i = Math.floor(Math.max(0, leagues) / WATER_CYCLE_LEAGUES) % WATER_ORDER.length
+  return WATER_PALETTES[WATER_ORDER[i]]
+}
+
 type RGB = [number, number, number]
 
 function hexToRgb(hex: string): RGB {

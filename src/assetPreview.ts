@@ -14,6 +14,9 @@ import {
   buildAllSprites,
   frameToCanvas,
   PALETTE,
+  WATER_PALETTES,
+  WATER_ORDER,
+  WATER_CYCLE_LEAGUES,
   type Frame,
   type SpriteAnim,
 } from './game/pixelArt'
@@ -48,6 +51,8 @@ style.textContent = `
     --panel: #0d242b;
     --panel-edge: #1b5352;
     --water: #133a40;
+    --stage-a: #10333a;
+    --stage-b: #0d242b;
     --ink: #cfeef2;
     --ink-dim: #8a97a0;
     --accent: #ff8c1a;
@@ -112,6 +117,27 @@ style.textContent = `
   }
   .scene-caption { text-align: center; color: var(--ink-dim); font-size: 12px; margin-top: 10px; }
 
+  .water-chips { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .water-chips button {
+    font-family: var(--display); font-size: 8px; letter-spacing: 1px;
+    color: var(--ink-dim);
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    padding: 7px 10px;
+    display: flex; align-items: center; gap: 7px;
+    cursor: pointer;
+  }
+  .water-chips button .dot { width: 10px; height: 10px; border: 1px solid #050a0c; }
+  .water-chips button.active { color: var(--ink); border-color: var(--accent); }
+  .water-chips button:focus-visible { outline: 2px solid var(--glow); outline-offset: 2px; }
+
+  .water-rows { display: flex; flex-direction: column; gap: 10px; }
+  .water-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .water-row .ramp { display: flex; }
+  .water-row .ramp span { width: 44px; height: 30px; border: 1px solid #050a0c; }
+  .water-row .name { font-family: var(--display); font-size: 9px; letter-spacing: 1px; min-width: 130px; }
+  .water-row .range { color: var(--ink-dim); font-size: 11px; }
+
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -127,7 +153,7 @@ style.textContent = `
     width: 100%; height: 120px;
     display: flex; align-items: center; justify-content: center;
     background:
-      linear-gradient(180deg, #10333a 0 50%, #0d242b 50% 100%);
+      linear-gradient(180deg, var(--stage-a) 0 50%, var(--stage-b) 50% 100%);
   }
   .card canvas { image-rendering: pixelated; }
   .card .name { font-family: var(--display); font-size: 9px; color: var(--ink); letter-spacing: 1px; }
@@ -184,7 +210,13 @@ wrap.innerHTML = `
       <canvas class="scene" width="256" height="352" aria-label="Animated demo scene: the submarine steers and fires torpedoes at rising threats"></canvas>
     </div></div>
     <p class="scene-caption">Same behaviors as the game: eased steering, torpedoes with bubble
-    wakes, enemy tracer fire, mine shrapnel rings, three sizes of rolling explosion.</p>
+    wakes, enemy tracer fire, mine shrapnel rings, three sizes of rolling explosion.
+    The water changes every 5,000 leagues &mdash; watch the depth counter, or jump to a zone:</p>
+    <div class="water-chips" id="waterChips" role="group" aria-label="Jump to a water zone"></div>
+  </section>
+  <section>
+    <h2 class="rule">Water zones</h2>
+    <div class="water-rows" id="waterRows"></div>
   </section>
   <section>
     <h2 class="rule">Boss hangar</h2>
@@ -397,6 +429,72 @@ for (let i = 0; i < 22; i++) {
   world.ambient.push({ x: Math.random() * W, y: Math.random() * H, t: Math.random() * 9, size: (Math.random() * 3) | 0 })
 }
 
+// --- water zones: the palette rotates every 5000 leagues ---------------------
+
+const LEAGUE_RATE = 620 // the demo dives fast: a zone change every ~8 s
+const FADE_TIME = 1.6
+let leagues = 0
+let zoneIdx = 0
+let fade = 1 // 0→1 cross-fade progress into the current zone
+let prevBands = [...WATER_PALETTES[WATER_ORDER[0]].bands]
+
+const hex2rgb = (h: string): [number, number, number] => {
+  const n = parseInt(h.slice(1), 16)
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
+}
+const mixHex = (a: string, b: string, t: number): string => {
+  const ra = hex2rgb(a)
+  const rb = hex2rgb(b)
+  const c = ra.map((v, i) => Math.round(v + (rb[i] - v) * t))
+  return `rgb(${c[0]},${c[1]},${c[2]})`
+}
+function currentBands(): string[] {
+  const target = WATER_PALETTES[WATER_ORDER[zoneIdx]].bands
+  if (fade >= 1) return [...target]
+  return target.map((b, i) => mixHex(prevBands[i], b, fade))
+}
+
+const chipHost = document.getElementById('waterChips')!
+const chips: HTMLButtonElement[] = []
+WATER_ORDER.forEach((key, i) => {
+  const p = WATER_PALETTES[key]
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.innerHTML = `<span class="dot" style="background:${p.bands[1]}"></span>${p.label.toUpperCase()}`
+  btn.addEventListener('click', () => {
+    prevBands = currentBands()
+    leagues = i * WATER_CYCLE_LEAGUES
+    zoneIdx = i
+    fade = 0
+    setZoneChrome()
+    if (reduceMotion) draw(performance.now() / 1000)
+  })
+  chipHost.appendChild(btn)
+  chips.push(btn)
+})
+
+function setZoneChrome(): void {
+  const bands = WATER_PALETTES[WATER_ORDER[zoneIdx]].bands
+  document.documentElement.style.setProperty('--stage-a', bands[1])
+  document.documentElement.style.setProperty('--stage-b', bands[3])
+  chips.forEach((c, i) => c.classList.toggle('active', i === zoneIdx))
+}
+setZoneChrome()
+
+const waterRows = document.getElementById('waterRows')!
+WATER_ORDER.forEach((key, i) => {
+  const p = WATER_PALETTES[key]
+  const lo = (i * WATER_CYCLE_LEAGUES).toLocaleString()
+  const hi = ((i + 1) * WATER_CYCLE_LEAGUES).toLocaleString()
+  const row = document.createElement('div')
+  row.className = 'water-row'
+  row.innerHTML = `
+    <span class="ramp">${p.bands.map((b) => `<span style="background:${b}"></span>`).join('')}</span>
+    <span class="name">${p.label}</span>
+    <span class="range">${lo}&ndash;${hi} L${i === WATER_ORDER.length - 1 ? ' &middot; then the cycle repeats' : ''}</span>`
+  waterRows.appendChild(row)
+})
+
 let spawnCycle = 0
 function spawnThreat(now: number): void {
   const kinds: ThreatKind[] = ['frogman', 'mine', 'enemySub', 'frogman', 'angler', 'mine']
@@ -417,6 +515,17 @@ function boom(x: number, y: number, size: Boom['size']): void {
 }
 
 function update(dt: number, now: number): void {
+  // dive: leagues climb, and the water rotates every 5000
+  leagues += LEAGUE_RATE * dt
+  fade = Math.min(1, fade + dt / FADE_TIME)
+  const nz = Math.floor(leagues / WATER_CYCLE_LEAGUES) % WATER_ORDER.length
+  if (nz !== zoneIdx) {
+    prevBands = currentBands()
+    zoneIdx = nz
+    fade = 0
+    setZoneChrome()
+  }
+
   // steering: retarget occasionally, ease toward target (the game's model)
   world.steerT -= dt
   if (world.steerT <= 0) {
@@ -519,8 +628,8 @@ function frameAt(name: string, t: number): Frame {
 }
 
 function draw(now: number): void {
-  // water: two-tone bands with a checker dither seam, darker with depth
-  const bands = ['#1b5352', '#133a40', '#10333a', '#0d242b']
+  // water: the active zone's bands, dither-seamed, darker with depth
+  const bands = currentBands()
   const bh = H / bands.length
   for (let i = 0; i < bands.length; i++) {
     sc.fillStyle = bands[i]
@@ -607,7 +716,8 @@ function draw(now: number): void {
   sc.fillStyle = '#cfeef2'
   sc.fillText(`1UP ${String(world.score).padStart(7, '0')}`, 4, 3)
   sc.fillStyle = '#ff8c1a'
-  sc.fillText('HI 0050000', W - 84, 3)
+  const depth = `${Math.floor(leagues).toLocaleString()}L`
+  sc.fillText(depth, W - 4 - depth.length * 8, 3)
 }
 
 // ---------------------------------------------------------------------------
