@@ -80,8 +80,11 @@ export const LASER_DURATION = 5
 const LASER_COOLDOWN = 0.6
 export const LASER_HALF_WIDTH = BOARD_W * 0.5 * 0.5
 
-const BASE_SCROLL_SPEED = 170
-const MAX_SCROLL_SPEED = 360
+// Slowed by a third from the original 170/360 pace — gives the player more
+// time to read and dodge incoming threats without changing anything else
+// about how spawns or difficulty scale.
+const BASE_SCROLL_SPEED = 113
+const MAX_SCROLL_SPEED = 240
 const SPEED_GAIN_PER_DEPTH = 0.012
 const SPAWN_SPACING = 260
 const SPAWN_MARGIN = 220
@@ -133,7 +136,7 @@ const KRACKEN_KILL_POINTS = 1000
 // other threat does, so they still cross the same distance (and get the
 // same proximity-fuse warning) as a normal mine, regardless of where the
 // boss itself sits.
-const BOSS_Y = BOARD_H * 0.76
+const BOSS_Y = BOARD_H * 0.81
 const BOSS_ENTER_SPEED = 140
 export const BOSS_R = 50
 const BOSS_HP_MIN = 15
