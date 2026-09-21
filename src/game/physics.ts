@@ -58,6 +58,15 @@ export const TENTACLE_THICKNESS = 90
 const TENTACLE_REACH_MIN = BOARD_W * 0.32
 const TENTACLE_REACH_MAX = BOARD_W * 0.48
 
+// A mine wall: a short chain of mines bolted to one side wall by a mooring
+// line, unlike free mines they carry no proximity fuse at all — they just
+// hang there swaying gently until a missile or the sub's own hull sets one
+// off. Terrain you can leave alone, not a ticking clock like MINE_FUSE_RANGE.
+const MINE_WALL_COUNT_MIN = 2
+const MINE_WALL_COUNT_MAX = 4
+const MINE_WALL_INSET = 34
+const MINE_WALL_SPACING = 46
+
 const POWERUP_R = 16
 const POWERUP_SPACING = 1600
 const SHOTGUN_DURATION = 9
@@ -169,7 +178,7 @@ export interface Boss {
   powerupIn: number
 }
 
-export type ThreatType = 'fish' | 'monster' | 'sub' | 'mine' | 'tentacle'
+export type ThreatType = 'fish' | 'monster' | 'sub' | 'mine' | 'tentacle' | 'mineWall'
 
 interface ThreatSpec {
   r: number
@@ -185,6 +194,10 @@ const THREAT_SPEC: Record<ThreatType, ThreatSpec> = {
   // Not a point hazard — collision uses `side`/`reach` instead of `r`, and
   // it's only ever destroyed by the laser ultimate, hence the points value.
   tentacle: { r: 0, points: 20, wander: 0 },
+  // A moored mine: same blast as a free mine, but bolted in place (wander 0)
+  // and — critically — never entered into detonateFusedMines below, so it
+  // only ever goes off from a direct hit.
+  mineWall: { r: 20, points: 25, wander: 0 },
 }
 
 export interface Threat {
@@ -195,7 +208,8 @@ export interface Threat {
   y: number
   phase: number
   fireIn: number
-  /** Tentacle only: which wall it reaches from, and how far across. */
+  /** Tentacle and mineWall only: which wall they're anchored to. Tentacle
+   *  also uses `reach` for how far across it extends. */
   side?: 'left' | 'right'
   reach?: number
 }
@@ -333,10 +347,11 @@ function weightsForDepth(depth: number) {
     sub: 0.13 + 0.13 * k,
     mine: 0.17 + 0.08 * k,
     tentacle: 0.15 + 0.1 * k,
+    mineWall: 0.08 + 0.05 * k,
   }
 }
 
-const THREAT_TYPES: ThreatType[] = ['fish', 'monster', 'sub', 'mine', 'tentacle']
+const THREAT_TYPES: ThreatType[] = ['fish', 'monster', 'sub', 'mine', 'tentacle', 'mineWall']
 
 function pickThreatType(depth: number): ThreatType {
   const w = weightsForDepth(depth)
@@ -369,6 +384,11 @@ function spawnThreat(world: World) {
     return
   }
 
+  if (type === 'mineWall') {
+    spawnMineWall(world)
+    return
+  }
+
   const spec = THREAT_SPEC[type]
   const x = THREAT_MARGIN + spec.r + Math.random() * (BOARD_W - (THREAT_MARGIN + spec.r) * 2)
   world.threats.push({
@@ -380,6 +400,30 @@ function spawnThreat(world: World) {
     phase: Math.random() * Math.PI * 2,
     fireIn: SUB_FIRE_MIN + Math.random() * (SUB_FIRE_MAX - SUB_FIRE_MIN),
   })
+}
+
+/** A short chain of mines bolted to one wall, stepping inward from it —
+ *  terrain like the tentacle, but each link is its own point hazard: it
+ *  only goes off if a missile or the sub's hull actually touches it. */
+function spawnMineWall(world: World) {
+  const side: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right'
+  const count = MINE_WALL_COUNT_MIN + Math.floor(Math.random() * (MINE_WALL_COUNT_MAX - MINE_WALL_COUNT_MIN + 1))
+  const y = BOARD_H + SPAWN_MARGIN
+  for (let i = 0; i < count; i++) {
+    const dist = MINE_WALL_INSET + i * MINE_WALL_SPACING
+    const x = side === 'left' ? dist : BOARD_W - dist
+    world.threats.push({
+      id: world.nextId++,
+      type: 'mineWall',
+      side,
+      x,
+      baseX: x,
+      // a gentle stagger so the chain doesn't arrive as one flat wall
+      y: y + i * 14,
+      phase: Math.random() * Math.PI * 2,
+      fireIn: 0,
+    })
+  }
 }
 
 /** More likely with depth, capped so single spawns stay the common case. */

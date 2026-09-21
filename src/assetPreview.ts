@@ -11,17 +11,53 @@
  * animating on a card, then the master palette.
  */
 import {
+  blank,
+  blit,
   buildAllSprites,
+  buildChain,
+  buildMine,
+  buildPods,
+  buildTentacleArm,
   frameToCanvas,
   PALETTE,
   WATER_PALETTES,
   WATER_ORDER,
   WATER_CYCLE_LEAGUES,
   type Frame,
+  type PodKind,
   type SpriteAnim,
 } from './game/pixelArt'
 
 const sprites = buildAllSprites()
+
+// Pods, the tentacle wall and the new moored mine aren't part of
+// buildAllSprites() (render2d.ts builds/positions them separately), but the
+// roster below just walks `sprites`, so folding them in here is the whole
+// integration — every sprite in the game ends up on this page.
+const pods = buildPods()
+const POD_NAMES: Record<PodKind, string> = {
+  shotgun: 'pod_shotgun',
+  laser: 'pod_laser',
+  health: 'pod_health',
+  extraLife: 'pod_extraLife',
+}
+for (const kind of Object.keys(pods) as PodKind[]) {
+  sprites[POD_NAMES[kind]] = { frames: pods[kind], fps: 3, loop: true }
+}
+sprites.tentacleArm = { frames: [buildTentacleArm(64, 40, 11), buildTentacleArm(64, 40, 12)], fps: 2, loop: true }
+function mooredMineFrame(mineFrame: Frame, bobY: number): Frame {
+  const chain = buildChain(26, 5)
+  const f = blank(44, 26)
+  blit(f, chain, 0, 9)
+  blit(f, mineFrame, 26, 4 + bobY)
+  return f
+}
+const mooredMineFrames = buildMine()
+sprites.mooredMine = {
+  frames: [mooredMineFrame(mooredMineFrames[0], -2), mooredMineFrame(mooredMineFrames[1], 2)],
+  fps: 2,
+  loop: true,
+}
 const cache = new Map<Frame, HTMLCanvasElement>()
 const fc = (f: Frame): HTMLCanvasElement => {
   let c = cache.get(f)
@@ -271,6 +307,12 @@ const DESCRIPTIONS: Record<string, string> = {
   explosionM: 'explosion M',
   explosionL: 'explosion L',
   bubbles: 'bubbles',
+  pod_shotgun: 'supply pod · shotgun',
+  pod_laser: 'supply pod · laser',
+  pod_health: 'supply pod · repair',
+  pod_extraLife: 'supply pod · 1UP',
+  tentacleArm: 'tentacle wall (sway)',
+  mooredMine: 'mine wall · chained + bobbing',
 }
 
 // bosses get the hangar, not a roster card
@@ -374,7 +416,7 @@ const scene = document.querySelector<HTMLCanvasElement>('canvas.scene')!
 const sc = scene.getContext('2d')!
 sc.imageSmoothingEnabled = false
 
-type ThreatKind = 'mine' | 'frogman' | 'angler' | 'enemySub'
+type ThreatKind = 'mine' | 'frogman' | 'angler' | 'enemySub' | 'mineWall'
 interface Threat {
   kind: ThreatKind
   x: number
@@ -383,6 +425,8 @@ interface Threat {
   born: number
   fireT: number
   flash: number
+  /** mineWall only: which wall it's chained to, for the tether draw. */
+  side?: 'left' | 'right'
 }
 interface Shot {
   x: number
@@ -407,7 +451,7 @@ interface Puff {
   size: number
 }
 
-const RADII: Record<ThreatKind, number> = { mine: 9, frogman: 11, angler: 13, enemySub: 11 }
+const RADII: Record<ThreatKind, number> = { mine: 9, frogman: 11, angler: 13, enemySub: 11, mineWall: 9 }
 const SUB_Y = 44
 
 const world = {
@@ -496,9 +540,31 @@ WATER_ORDER.forEach((key, i) => {
 })
 
 let spawnCycle = 0
+function spawnMineWall(now: number): void {
+  const side: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right'
+  const count = 2 + Math.floor(Math.random() * 2)
+  for (let i = 0; i < count; i++) {
+    const dist = 20 + i * 28
+    world.threats.push({
+      kind: 'mineWall',
+      side,
+      x: side === 'left' ? dist : W - dist,
+      y: H + 24 + i * 10,
+      vx: 0,
+      born: now + i,
+      fireT: 0,
+      flash: 0,
+    })
+  }
+}
+
 function spawnThreat(now: number): void {
-  const kinds: ThreatKind[] = ['frogman', 'mine', 'enemySub', 'frogman', 'angler', 'mine']
+  const kinds: ThreatKind[] = ['frogman', 'mine', 'enemySub', 'frogman', 'angler', 'mine', 'mineWall']
   const kind = kinds[spawnCycle++ % kinds.length]
+  if (kind === 'mineWall') {
+    spawnMineWall(now)
+    return
+  }
   world.threats.push({
     kind,
     x: 24 + Math.random() * (W - 48),
@@ -627,6 +693,19 @@ function frameAt(name: string, t: number): Frame {
   return a.frames[Math.floor(t * a.fps) % a.frames.length]
 }
 
+// mineWall x never moves (vx 0), so its tether length is fixed for its whole
+// life — cache by that length rather than rebuilding (and re-caching a fresh
+// Frame object into `fc`) every single draw call.
+const mineWallChainCache = new Map<number, Frame>()
+function mineWallChain(len: number): Frame {
+  let f = mineWallChainCache.get(len)
+  if (!f) {
+    f = buildChain(len, len)
+    mineWallChainCache.set(len, f)
+  }
+  return f
+}
+
 function draw(now: number): void {
   // water: the active zone's bands, dither-seamed, darker with depth
   const bands = currentBands()
@@ -658,6 +737,15 @@ function draw(now: number): void {
     } else if (th.kind === 'enemySub') {
       const f = th.flash > 0 ? sprites.enemySubFire.frames[0] : frameAt('enemySub', now + th.born)
       sc.drawImage(fc(f), Math.round(th.x - f.w / 2), Math.round(th.y - f.h / 2))
+    } else if (th.kind === 'mineWall') {
+      // chained to the wall, not the arming fuse — a gentle float, calm blink
+      const bob = Math.sin(now * 1.7 + th.born) * 3
+      const wallX = th.side === 'left' ? 0 : W
+      const chain = mineWallChain(Math.max(6, Math.round(Math.abs(th.x - wallX))))
+      const cc = fc(chain)
+      sc.drawImage(cc, th.side === 'left' ? 0 : W - cc.width, Math.round(th.y + bob - cc.height / 2))
+      const f = sprites.mine.frames[Math.floor(now * 2 + th.born) % 2]
+      sc.drawImage(fc(f), Math.round(th.x - f.w / 2), Math.round(th.y + bob - f.h / 2))
     } else {
       const f = frameAt(th.kind, now + th.born)
       const flip = th.vx > 0

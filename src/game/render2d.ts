@@ -24,6 +24,7 @@ import {
 import type { GamePhase } from './types'
 import {
   buildAllSprites,
+  buildChain,
   buildPods,
   buildTentacleArm,
   frameToCanvas,
@@ -51,6 +52,13 @@ interface Ring {
   y: number
   t: number
 }
+interface Spark {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  t: number
+}
 interface Puff {
   x: number
   y: number
@@ -63,6 +71,10 @@ interface Ambient {
   size: number
   speed: number
 }
+
+/** A moored mine's gentle vertical float on its chain — slightly up, slightly
+ *  down, never the fast arming blink a free proximity mine gets. */
+const mineWallBob = (t: number, phase: number): number => Math.sin(t * 1.7 + phase) * 5
 
 const hex2rgb = (h: string): [number, number, number] => {
   const n = parseInt(h.slice(1), 16)
@@ -81,10 +93,12 @@ export class Render2D {
   private pods: Record<PodKind, Frame[]>
   private canvases = new Map<Frame, HTMLCanvasElement>()
   private tentacles = new Map<number, HTMLCanvasElement>()
+  private chains = new Map<number, HTMLCanvasElement>()
   private subFlash = new Map<number, number>() // enemy sub id → muzzle flash time left
   private subFireIn = new Map<number, number>() // enemy sub id → last seen fireIn
   private booms: Boom[] = []
   private rings: Ring[] = []
+  private sparks: Spark[] = []
   private wake: Puff[] = []
   private ambient: Ambient[] = []
   private consumedEffects = 0
@@ -114,6 +128,7 @@ export class Render2D {
   dispose(): void {
     this.canvases.clear()
     this.tentacles.clear()
+    this.chains.clear()
   }
 
   private fc(f: Frame): HTMLCanvasElement {
@@ -156,6 +171,24 @@ export class Render2D {
     return c
   }
 
+  /** The mooring line for a mineWall link, wall → mine, cached per threat. */
+  private chainSprite(threat: Threat, len: number): HTMLCanvasElement {
+    let c = this.chains.get(threat.id)
+    if (!c) {
+      c = frameToCanvas(buildChain(len, threat.id))
+      this.chains.set(threat.id, c)
+      if (this.chains.size > 40) {
+        for (const key of this.chains.keys()) {
+          if (key !== threat.id) {
+            this.chains.delete(key)
+            break
+          }
+        }
+      }
+    }
+    return c
+  }
+
   // -------------------------------------------------------------------------
 
   update(world: World, phase: GamePhase, dt: number, t: number): void {
@@ -167,18 +200,29 @@ export class Render2D {
       this.consumedEffects = 0
       this.booms = []
       this.rings = []
+      this.sparks = []
       this.wake = []
       this.subFlash.clear()
       this.subFireIn.clear()
       this.tentacles.clear()
+      this.chains.clear()
     }
     this.lastElapsed = world.elapsed
 
     // drain new physics events into FX
     while (this.consumedEffects < world.effects.length) {
       const e = world.effects[this.consumedEffects++]
-      if (e.kind === 'pickup') this.rings.push({ x: e.x, y: e.y, t: 0 })
-      else {
+      if (e.kind === 'pickup') {
+        this.rings.push({ x: e.x, y: e.y, t: 0 })
+        // a little starburst of sparks flung outward from the pod, In the
+        // Hunt's "picked something up" flourish rather than just a ring
+        const count = 7
+        for (let i = 0; i < count; i++) {
+          const a = (i / count) * Math.PI * 2 + Math.random() * 0.4
+          const speed = 60 + Math.random() * 50
+          this.sparks.push({ x: e.x, y: e.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, t: 0 })
+        }
+      } else {
         const anim = e.kind === 'hit' ? 'explosionS' : e.kind === 'kill' ? 'explosionM' : 'explosionL'
         this.booms.push({ x: e.x, y: e.y, anim, t: 0 })
       }
@@ -207,6 +251,14 @@ export class Render2D {
     })
     for (const r of this.rings) r.t += dt
     this.rings = this.rings.filter((r) => r.t < 0.5)
+    for (const s of this.sparks) {
+      s.t += dt
+      s.x += s.vx * dt
+      s.y += s.vy * dt
+      s.vx *= 1 - Math.min(1, dt * 3)
+      s.vy *= 1 - Math.min(1, dt * 3)
+    }
+    this.sparks = this.sparks.filter((s) => s.t < 0.4)
     for (const p of this.wake) {
       p.t += dt
       p.y -= 30 * dt
@@ -226,6 +278,16 @@ export class Render2D {
           this.wake.push({ x: m.x * K + (Math.random() * 4 - 2), y: m.y * K - 12, t: 0, size: Math.floor(Math.random() * 2) })
         }
       }
+    }
+    // player prop wash: a steady trickle of exhaust bubbles off the stern
+    if (running && Math.random() < dt * 16) {
+      const side = Math.random() < 0.5 ? -1 : 1
+      this.wake.push({
+        x: world.subX * K + side * 6 + (Math.random() * 3 - 1.5),
+        y: SUB_Y * K - 22,
+        t: 0,
+        size: Math.floor(Math.random() * 2),
+      })
     }
     // enemy sub muzzle flashes: fireIn resets upward when a shot goes out
     for (const threat of world.threats) {
@@ -279,13 +341,21 @@ export class Render2D {
     }
     ctx.globalAlpha = 1
 
-    // --- tentacles (terrain, behind everything that moves) ---
+    // --- terrain, behind everything that moves: tentacles + mine-wall tethers ---
     for (const threat of world.threats) {
-      if (threat.type !== 'tentacle') continue
-      const sprite = this.tentacleSprite(threat)
-      const x = threat.side === 'left' ? 0 : RW - sprite.width
-      const sway = Math.sin(t * 1.4 + threat.phase) * 2
-      ctx.drawImage(sprite, x, Math.round(threat.y * K - sprite.height / 2 + sway))
+      if (threat.type === 'tentacle') {
+        const sprite = this.tentacleSprite(threat)
+        const x = threat.side === 'left' ? 0 : RW - sprite.width
+        const sway = Math.sin(t * 1.4 + threat.phase) * 2
+        ctx.drawImage(sprite, x, Math.round(threat.y * K - sprite.height / 2 + sway))
+      } else if (threat.type === 'mineWall') {
+        const bob = mineWallBob(t, threat.phase)
+        const wallX = threat.side === 'left' ? 0 : RW
+        const len = Math.max(8, Math.round(Math.abs(threat.x * K - wallX)))
+        const chain = this.chainSprite(threat, len)
+        const cx = threat.side === 'left' ? 0 : RW - chain.width
+        ctx.drawImage(chain, cx, Math.round((threat.y + bob) * K - chain.height / 2))
+      }
     }
 
     // --- power-up pods ---
@@ -301,6 +371,10 @@ export class Render2D {
         const armed = threat.y <= SUB_Y + MINE_FUSE_RANGE + 140
         const f = this.sprites.mine.frames[Math.floor(t * (armed ? 9 : 3)) % 2]
         this.drawAt(f, threat.x, threat.y)
+      } else if (threat.type === 'mineWall') {
+        // calm, un-arming blink — this one only goes off if it's actually hit
+        const f = this.sprites.mine.frames[Math.floor(t * 2 + threat.phase) % 2]
+        this.drawAt(f, threat.x, threat.y + mineWallBob(t, threat.phase))
       } else if (threat.type === 'sub') {
         const f = this.subFlash.has(threat.id)
           ? this.sprites.enemySubFire.frames[0]
@@ -423,6 +497,14 @@ export class Render2D {
       ctx.stroke()
       ctx.globalAlpha = 1
     }
+    for (const s of this.sparks) {
+      const life = Math.max(0, 1 - s.t / 0.4)
+      ctx.globalAlpha = life
+      ctx.fillStyle = s.t < 0.12 ? '#fff8d0' : '#ffe9a0'
+      const sz = Math.max(1, Math.round(2 * life + 1))
+      ctx.fillRect(Math.round(s.x * K - sz / 2), Math.round(s.y * K - sz / 2), sz, sz)
+    }
+    ctx.globalAlpha = 1
     for (const b of this.booms) {
       const a = this.sprites[b.anim]
       const f = a.frames[Math.min(a.frames.length - 1, Math.floor(b.t * a.fps))]
