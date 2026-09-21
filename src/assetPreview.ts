@@ -146,6 +146,27 @@ style.textContent = `
   }
   .usage code { color: var(--glow); }
   .usage p { margin: 6px 0; }
+
+  #bosses { display: flex; flex-direction: column; gap: 14px; }
+  .boss-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    padding: 14px 14px 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+  .boss-card .warnbar {
+    align-self: stretch;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    font-family: var(--display); font-size: 10px; letter-spacing: 2px;
+    padding: 6px 10px;
+    background: repeating-linear-gradient(-45deg, #16161c 0 10px, #2c2c34 10px 20px);
+    border: 1px solid #050a0c;
+  }
+  .boss-card .warnbar .who { color: var(--warn); }
+  .boss-card.kracken .warnbar .who { color: var(--accent); }
+  .boss-card .warnbar .when { color: var(--ink-dim); font-size: 8px; }
+  .boss-card canvas { image-rendering: pixelated; max-width: 100%; height: auto; }
+  .boss-card .meta { color: var(--ink-dim); font-size: 11px; }
 `
 document.head.appendChild(style)
 
@@ -164,6 +185,10 @@ wrap.innerHTML = `
     </div></div>
     <p class="scene-caption">Same behaviors as the game: eased steering, torpedoes with bubble
     wakes, enemy tracer fire, mine shrapnel rings, three sizes of rolling explosion.</p>
+  </section>
+  <section>
+    <h2 class="rule">Boss hangar</h2>
+    <div id="bosses"></div>
   </section>
   <section>
     <h2 class="rule">Sprite roster</h2>
@@ -216,7 +241,38 @@ const DESCRIPTIONS: Record<string, string> = {
   bubbles: 'bubbles',
 }
 
+// bosses get the hangar, not a roster card
+const BOSSES: Record<string, { title: string; when: string; cls: string }> = {
+  bossWarden: { title: 'THE WARDEN', when: 'EVERY 1000 LEAGUES', cls: '' },
+  bossKracken: { title: 'THE KRACKEN', when: '20000 LEAGUES', cls: 'kracken' },
+}
+const bossHost = document.getElementById('bosses')!
+for (const [name, info] of Object.entries(BOSSES)) {
+  const anim = sprites[name]
+  const card = document.createElement('div')
+  card.className = `boss-card ${info.cls}`
+  const bar = document.createElement('div')
+  bar.className = 'warnbar'
+  bar.innerHTML = `<span class="who">&#9888; ${info.title}</span><span class="when">${info.when}</span>`
+  card.appendChild(bar)
+  const cv = document.createElement('canvas')
+  const f0 = anim.frames[0]
+  const zoom = 2
+  cv.width = f0.w * zoom
+  cv.height = f0.h * zoom
+  card.appendChild(cv)
+  const meta = document.createElement('div')
+  meta.className = 'meta'
+  meta.textContent = `${f0.w}×${f0.h} · ${anim.frames.length}f @ ${anim.fps}fps · jaw + tentacle sway + eye pulse`
+  card.appendChild(meta)
+  bossHost.appendChild(card)
+  const ctx = cv.getContext('2d')!
+  ctx.imageSmoothingEnabled = false
+  cards.push({ anim, ctx, zoom })
+}
+
 for (const [name, anim] of Object.entries(sprites)) {
+  if (name in BOSSES) continue
   const card = document.createElement('div')
   card.className = 'card'
   const stage = document.createElement('div')

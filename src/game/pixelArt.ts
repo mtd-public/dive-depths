@@ -749,6 +749,233 @@ export function buildMine(): Frame[] {
 }
 
 // ---------------------------------------------------------------------------
+// Bosses — the Warden (drowned dreadnought) and the Kracken variant
+// ---------------------------------------------------------------------------
+
+interface BossParams {
+  w: number
+  h: number
+  tentacles: number
+  hide: RGB // deep body mass
+  plate: RGB // armored plating
+  plateLight: RGB // plate highlight / rim light
+  accent1: RGB // scarring / crack color, dark
+  accent2: RGB // scarring / crack color, bright
+  eyeCore: RGB
+  eyeBright: RGB
+  eyeHalo: RGB
+  sucker: RGB
+  glowCracks: boolean // Kracken: magma-lit seams across the hide
+  chains: boolean // Warden: salvage chains across the hull
+  seed: number
+}
+
+const WARDEN: BossParams = {
+  w: 224,
+  h: 96,
+  tentacles: 6,
+  hide: LEGEND.m,
+  plate: LEGEND.M,
+  plateLight: LEGEND.N,
+  accent1: LEGEND.r,
+  accent2: LEGEND.R,
+  eyeCore: LEGEND.e,
+  eyeBright: LEGEND.E,
+  eyeHalo: LEGEND.e,
+  sucker: LEGEND.N,
+  glowCracks: false,
+  chains: true,
+  seed: 101,
+}
+
+const KRACKEN: BossParams = {
+  w: 240,
+  h: 120,
+  tentacles: 16,
+  hide: LEGEND.r,
+  plate: LEGEND.R,
+  plateLight: LEGEND.U,
+  accent1: LEGEND.C,
+  accent2: LEGEND.O,
+  eyeCore: LEGEND.O,
+  eyeBright: LEGEND.y,
+  eyeHalo: LEGEND.C,
+  sucker: LEGEND.U,
+  glowCracks: true,
+  chains: false,
+  seed: 202,
+}
+
+/** Body crest line: a broad arc, high in the middle, drooping at the edges. */
+function bossCrest(p: BossParams, x: number): number {
+  const cx = p.w / 2
+  const arc = ((x - cx) / cx) ** 2 // 0 center → 1 edges
+  const wob = Math.floor(hash(x >> 3, 0, p.seed) * 5) // chunky ridge steps
+  return Math.round(p.h * 0.3 + arc * p.h * 0.34 + wob)
+}
+
+function drawTentacle(
+  f: Frame,
+  p: BossParams,
+  baseX: number,
+  topY: number,
+  len: number,
+  phase: number,
+  sway: number,
+): void {
+  for (let i = 0; i < len; i++) {
+    const y = topY + len - 1 - i // grow upward from the mass
+    const t = i / len
+    const x = Math.round(baseX + Math.sin(i * 0.22 + phase + sway) * (3 + t * 5))
+    const half = Math.max(1, Math.round(3.4 * (1 - t)))
+    for (let dx = -half; dx <= half; dx++) {
+      const edge = dx === -half || dx === half
+      put(f, x + dx, y, edge ? LEGEND.o : (dx + y) % 3 === 0 ? p.plate : p.hide)
+    }
+    put(f, x, y - 1, i === len - 1 ? LEGEND.o : f.data[((y - 1) * f.w + x) * 4 + 3] ? p.hide : LEGEND.o)
+    // suckers up the limb's face
+    if (i % 5 === 2 && half > 1) put(f, x, y, p.sucker)
+  }
+}
+
+function bossFrame(p: BossParams, jaw: number, sway: number, eyesBright: boolean): Frame {
+  const f = blank(p.w, p.h)
+  const cx = p.w / 2
+
+  // tentacles first, trailing up from behind the mass
+  for (let i = 0; i < p.tentacles; i++) {
+    const spread = (i + 0.5) / p.tentacles
+    const baseX = Math.round(8 + spread * (p.w - 16))
+    // keep the center clear so limbs frame the mouth rather than cover it
+    const off = Math.abs(spread - 0.5) < 0.18 ? (spread < 0.5 ? -26 : 26) : 0
+    const topY = bossCrest(p, baseX + off) + 4
+    const len = Math.round(topY * (0.55 + hash(i, 1, p.seed) * 0.4))
+    drawTentacle(f, p, baseX + off, topY - len, len, i * 1.7, sway)
+  }
+
+  // the mass: chunky plated hide from the crest down
+  for (let x = 0; x < p.w; x++) {
+    const top = bossCrest(p, x)
+    for (let y = top; y < p.h; y++) {
+      const d = y - top
+      let c: RGB
+      if (d === 0) c = LEGEND.o
+      else if (d === 1) c = p.plateLight // rim light along the whole crest
+      else if (d < 10) c = hash(x, y, p.seed + 2) > 0.78 ? p.hide : p.plate
+      else if (d < 16) c = (x + y) % 2 === 0 ? p.plate : p.hide // dither band
+      else c = hash(x, y, p.seed + 3) > 0.85 ? p.plate : p.hide
+      put(f, x, y, c)
+    }
+  }
+  // plate seams with rivets, like a hull that was once a ship
+  for (let sx = 14; sx < p.w - 8; sx += 22) {
+    const top = bossCrest(p, sx) + 2
+    for (let y = top; y < p.h - 2; y++) {
+      if (hash(sx, y, p.seed + 4) > 0.92) continue // corroded gaps
+      put(f, sx + ((y >> 3) % 2), y, LEGEND.o)
+      if (y % 6 === 3) put(f, sx + ((y >> 3) % 2) + 1, y, p.plateLight)
+    }
+  }
+  // scarring: rust streaks on the Warden, glowing magma seams on the Kracken
+  for (let i = 0; i < p.w / 9; i++) {
+    const sx = Math.round(hash(i, 7, p.seed) * (p.w - 16) + 8)
+    const sy = bossCrest(p, sx) + 5 + Math.round(hash(i, 8, p.seed) * (p.h * 0.3))
+    const len = p.glowCracks ? 6 + Math.round(hash(i, 9, p.seed) * 6) : 3 + Math.round(hash(i, 9, p.seed) * 5)
+    for (let j = 0; j < len; j++) {
+      const gx = sx + (p.glowCracks ? j : Math.round(Math.sin(j) * 1))
+      const gy = sy + (p.glowCracks ? Math.round(Math.sin(j * 1.1 + i) * 2) : j)
+      put(f, gx, gy, p.glowCracks ? (j % 3 === 2 ? p.accent1 : p.accent2) : j % 2 === 0 ? p.accent2 : p.accent1)
+      if (p.glowCracks && j % 4 === 1) put(f, gx, gy + 1, p.accent1) // ember bleed
+    }
+  }
+
+  // the mouth: a huge toothed gape in the middle of the mass
+  const mouthRx = Math.round(p.w * 0.26)
+  const mouthRy = Math.round(3 + jaw * (p.h * 0.17))
+  const mouthCy = Math.round(p.h * 0.6)
+  for (let y = -mouthRy; y <= mouthRy; y++) {
+    const span = Math.floor(mouthRx * Math.sqrt(Math.max(0, 1 - (y / mouthRy) ** 2)))
+    for (let x = -span; x <= span; x++) {
+      const edge = Math.abs(x) >= span - 1 || Math.abs(y) >= mouthRy - 1
+      put(
+        f,
+        cx + x,
+        mouthCy + y,
+        edge ? LEGEND.o : hash(x, y, p.seed + 5) > 0.94 ? LEGEND.M : LEGEND.m,
+      )
+    }
+  }
+  // gun-deck teeth: two staggered rows biting into the gape
+  const toothH = Math.min(5, mouthRy - 1)
+  if (toothH > 1) {
+    for (let tx = -mouthRx + 6; tx <= mouthRx - 6; tx += 8) {
+      const span = Math.floor(mouthRy * 0.9)
+      for (let ty = 0; ty < toothH; ty++) {
+        const half = Math.max(0, Math.round(2 * (1 - ty / toothH)))
+        for (let dx = -half; dx <= half; dx++) {
+          // upper row points down, lower row (offset) points up
+          put(f, cx + tx + dx, mouthCy - span + ty, ty === 0 ? LEGEND.S : LEGEND.w)
+          put(f, cx + tx + 4 + dx, mouthCy + span - ty, ty === 0 ? LEGEND.S : LEGEND.w)
+        }
+      }
+    }
+  }
+
+  // searchlight eyes out near the edges — big enough to be the threat's face
+  for (const ex of [Math.round(p.w * 0.15), Math.round(p.w * 0.85)]) {
+    const ey = bossCrest(p, ex) + 12
+    const r = 7
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const d = Math.hypot(dx, dy)
+        if (d > r) continue
+        let c: RGB
+        if (d > r - 1.2) c = LEGEND.o
+        else if (d > r - 2.4) c = p.hide // dark socket ring seats the lamp
+        else if (d < 2.2) c = eyesBright ? LEGEND.f : p.eyeBright
+        else if (d < 4.2) c = p.eyeBright
+        else c = p.eyeCore
+        put(f, ex + dx, ey + dy, c)
+      }
+    }
+    if (eyesBright) {
+      // halo ticks — a lamp, not a sprite glow
+      for (const [hx, hy] of [
+        [-r - 2, 0],
+        [r + 2, 0],
+        [0, -r - 2],
+        [0, r + 2],
+      ] as const)
+        put(f, ex + hx, ey + hy, p.eyeHalo)
+    }
+  }
+
+  // salvage chains sagging across the Warden's hull
+  if (p.chains) {
+    for (const [x0, x1] of [
+      [18, 74],
+      [150, 206],
+    ] as const) {
+      for (let x = x0; x <= x1; x += 2) {
+        const t = (x - x0) / (x1 - x0)
+        const y = bossCrest(p, x) + 6 + Math.round(Math.sin(t * Math.PI) * 7)
+        put(f, x, y, x % 4 === 0 ? LEGEND.S : LEGEND.N)
+        put(f, x, y + 1, LEGEND.o)
+        if (x % 8 === 0) put(f, x, y - 1, LEGEND.w) // glint
+      }
+    }
+  }
+  return f
+}
+
+export function buildBoss(variant: 'warden' | 'kracken'): Frame[] {
+  const p = variant === 'warden' ? WARDEN : KRACKEN
+  // jaw chews, tentacles sway, eyes pulse on the open beats
+  const jaws = [0.35, 0.7, 1, 0.7]
+  return jaws.map((jaw, i) => bossFrame(p, jaw, (i * Math.PI) / 2, i === 2))
+}
+
+// ---------------------------------------------------------------------------
 // Projectiles
 // ---------------------------------------------------------------------------
 
@@ -922,6 +1149,8 @@ export function buildAllSprites(): SpriteSet {
     enemySub: { frames: enemySub.run, fps: 5, loop: true },
     enemySubFire: { frames: [enemySub.fire], fps: 1, loop: false },
     mine: { frames: buildMine(), fps: 3, loop: true },
+    bossWarden: { frames: buildBoss('warden'), fps: 4, loop: true },
+    bossKracken: { frames: buildBoss('kracken'), fps: 4, loop: true },
     explosionS: { frames: buildExplosion(16, 6, 11), fps: 15, loop: false },
     explosionM: { frames: buildExplosion(32, 8, 23), fps: 15, loop: false },
     explosionL: { frames: buildExplosion(48, 12, 37), fps: 15, loop: false },
