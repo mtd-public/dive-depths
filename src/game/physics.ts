@@ -86,7 +86,12 @@ export const LASER_HALF_WIDTH = BOARD_W * 0.5 * 0.5
 const BASE_SCROLL_SPEED = 113
 const MAX_SCROLL_SPEED = 240
 const SPEED_GAIN_PER_DEPTH = 0.012
-const SPAWN_SPACING = 260
+// A range, not one fixed number — re-rolled after every spawn (see
+// randomSpawnGap) so the distance between placements varies run to run
+// instead of arriving on a metronome, leaving room to maneuver and shoot
+// around whatever just spawned before the next thing does.
+const SPAWN_SPACING_MIN = 190
+const SPAWN_SPACING_MAX = 330
 const SPAWN_MARGIN = 220
 const CULL_MARGIN = 200
 const THREAT_MARGIN = 30
@@ -289,6 +294,8 @@ export interface World {
   laserX: number
   fireCooldown: number
   spawnAccumulator: number
+  /** Rolled distance the next spawn arrives at — see randomSpawnGap. */
+  spawnGap: number
   powerupAccumulator: number
   nextId: number
   killPoints: number
@@ -312,6 +319,12 @@ export interface World {
   effects: Effect[]
 }
 
+/** A fresh random target for the next spawn's travel distance, within
+ *  SPAWN_SPACING_MIN..MAX — re-rolled after every spawn so gaps vary. */
+function randomSpawnGap(): number {
+  return SPAWN_SPACING_MIN + Math.random() * (SPAWN_SPACING_MAX - SPAWN_SPACING_MIN)
+}
+
 export function createWorld(): World {
   return {
     subX: BOARD_W / 2,
@@ -328,7 +341,8 @@ export function createWorld(): World {
     laserT: 0,
     laserX: BOARD_W / 2,
     fireCooldown: 0,
-    spawnAccumulator: SPAWN_SPACING * 0.5,
+    spawnAccumulator: SPAWN_SPACING_MIN * 0.5,
+    spawnGap: randomSpawnGap(),
     powerupAccumulator: POWERUP_SPACING * 0.4,
     nextId: 1,
     killPoints: 0,
@@ -359,18 +373,38 @@ function speedForDepth(depth: number) {
   return Math.min(MAX_SCROLL_SPEED, BASE_SCROLL_SPEED + depth * SPEED_GAIN_PER_DEPTH)
 }
 
-/** Threat mix skews toward subs, monsters and tentacles as depth increases. */
+// Each threat type enters the roving-spawn roster at its own leagues
+// milestone, staggering the mix open across the dive rather than dropping
+// everything on the player from league 0. Boss mine squads (spawnBossMine-
+// Squad) push `mine` threats directly, bypassing this table entirely, so a
+// boss fight before 7,500L can still throw mines at the player — the one
+// deliberate exception to the mine milestone below.
+const THREAT_UNLOCK_LEAGUES: Record<ThreatType, number> = {
+  monster: 1,
+  tentacle: 1,
+  mineWall: 1,
+  redFish: 1,
+  squid: 1,
+  fish: 5000,
+  mine: 7500,
+  sub: 10000,
+}
+
+/** Threat mix skews toward subs, monsters and tentacles as depth increases,
+ *  on top of the unlock gate above. */
 function weightsForDepth(depth: number) {
   const k = Math.min(1, depth / 3600)
+  const leagues = leaguesForDepth(depth)
+  const unlocked = (type: ThreatType) => leagues >= THREAT_UNLOCK_LEAGUES[type]
   return {
-    fish: 0.5 - 0.27 * k,
-    monster: 0.05 + 0.18 * k,
-    sub: 0.13 + 0.13 * k,
-    mine: 0.17 + 0.08 * k,
-    tentacle: 0.15 + 0.1 * k,
-    mineWall: 0.08 + 0.05 * k,
-    redFish: 0.12 + 0.03 * k,
-    squid: 0.1 + 0.05 * k,
+    fish: unlocked('fish') ? 0.5 - 0.27 * k : 0,
+    monster: unlocked('monster') ? 0.05 + 0.18 * k : 0,
+    sub: unlocked('sub') ? 0.13 + 0.13 * k : 0,
+    mine: unlocked('mine') ? 0.17 + 0.08 * k : 0,
+    tentacle: unlocked('tentacle') ? 0.15 + 0.1 * k : 0,
+    mineWall: unlocked('mineWall') ? 0.08 + 0.05 * k : 0,
+    redFish: unlocked('redFish') ? 0.12 + 0.03 * k : 0,
+    squid: unlocked('squid') ? 0.1 + 0.05 * k : 0,
   }
 }
 
@@ -465,11 +499,23 @@ function formationChance(depth: number) {
   return Math.min(0.4, 0.18 + depth / 9000)
 }
 
-function pickFormationType(): 'fish' | 'sub' | 'mine' {
-  const r = Math.random()
-  if (r < 0.55) return 'fish'
-  if (r < 0.9) return 'sub'
-  return 'mine'
+// Same relative odds as always (fish commonest, mine rarest), just narrowed
+// to whichever of the three are actually unlocked at the current leagues —
+// formations are their own spawn path and don't otherwise go through
+// weightsForDepth's gate at all, so without this a fish/sub/mine formation
+// could show up before that type's own milestone.
+const FORMATION_WEIGHTS: Record<'fish' | 'sub' | 'mine', number> = { fish: 0.55, sub: 0.35, mine: 0.1 }
+
+function pickFormationType(leagues: number): 'fish' | 'sub' | 'mine' | null {
+  const candidates = (['fish', 'sub', 'mine'] as const).filter((t) => leagues >= THREAT_UNLOCK_LEAGUES[t])
+  if (candidates.length === 0) return null
+  const total = candidates.reduce((sum, t) => sum + FORMATION_WEIGHTS[t], 0)
+  let r = Math.random() * total
+  for (const t of candidates) {
+    r -= FORMATION_WEIGHTS[t]
+    if (r <= 0) return t
+  }
+  return candidates[candidates.length - 1]
 }
 
 /** A diagonal chain of `count` same-type threats, staggered in y by
@@ -784,10 +830,12 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   // every other obstacle and enemy, not just adds to them --------------------
   if (!world.boss) {
     world.spawnAccumulator += speed * dt
-    if (world.spawnAccumulator >= SPAWN_SPACING) {
-      world.spawnAccumulator -= SPAWN_SPACING
-      if (Math.random() < formationChance(world.depth)) {
-        spawnFormation(world, pickFormationType())
+    if (world.spawnAccumulator >= world.spawnGap) {
+      world.spawnAccumulator -= world.spawnGap
+      world.spawnGap = randomSpawnGap()
+      const formationType = Math.random() < formationChance(world.depth) ? pickFormationType(leaguesForDepth(world.depth)) : null
+      if (formationType) {
+        spawnFormation(world, formationType)
       } else {
         spawnThreat(world)
       }
