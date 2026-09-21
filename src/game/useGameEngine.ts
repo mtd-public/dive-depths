@@ -11,7 +11,9 @@ import {
   type AchievementId,
 } from './achievements'
 import {
+  BOSS_INTERVAL_LEAGUES,
   createWorld,
+  depthForLeagues,
   LIVES_MAX,
   leaguesForDepth,
   score,
@@ -21,6 +23,7 @@ import {
   type BossVariant,
   type World,
 } from './physics'
+import { WATER_CYCLE_LEAGUES } from './pixelArt'
 
 const BEST_KEY = 'dive-depths-best'
 
@@ -45,6 +48,21 @@ function saveBest(best: number) {
   } catch {
     // storage unavailable (private mode, quota) — best just won't persist
   }
+}
+
+/** A fresh world for the title screen's self-playing demo, seeded a couple
+ *  of water zones in (blue or purple, picked at random) rather than the
+ *  shallow green opening every real dive starts at — makes the attract-mode
+ *  background more visually interesting on load. `nextBossLeagues` is pushed
+ *  out from that seeded depth so the demo doesn't walk straight into a boss
+ *  fight moments after spawning. */
+function createDemoWorld(): World {
+  const world = createWorld()
+  const zone = 1 + Math.floor(Math.random() * 2) // 1 (blue) or 2 (purple)
+  const leagues = zone * WATER_CYCLE_LEAGUES + Math.floor(Math.random() * WATER_CYCLE_LEAGUES * 0.5)
+  world.depth = depthForLeagues(leagues)
+  world.nextBossLeagues = leagues + BOSS_INTERVAL_LEAGUES
+  return world
 }
 
 function initialState(): GameState {
@@ -161,7 +179,7 @@ function reducer(state: GameState, action: Action): GameState {
  */
 export function useGameEngine() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState)
-  const worldRef = useRef<World>(createWorld())
+  const worldRef = useRef<World>(createDemoWorld())
   const inputRef = useRef({ fire: false })
   const phaseRef = useRef(state.phase)
   const lastTickRef = useRef({
@@ -176,6 +194,8 @@ export function useGameEngine() {
     bossVariant: null as BossVariant | null,
   })
   phaseRef.current = state.phase
+
+  const demoSteerTimerRef = useRef(0)
 
   const unlockedRef = useRef<Set<AchievementId>>(loadUnlocked())
   const [unlockedAchievements, setUnlockedAchievements] = useState(unlockedRef.current)
@@ -210,7 +230,13 @@ export function useGameEngine() {
     if (phaseRef.current === 'playing') inputRef.current.fire = true
   }, [])
 
-  const start = useCallback(() => dispatch({ type: 'START' }), [])
+  const start = useCallback(() => {
+    // the title screen's self-playing demo has been stepping worldRef since
+    // mount — start the real game from a clean slate, not wherever the
+    // demo's AI happened to leave off
+    worldRef.current = createWorld()
+    dispatch({ type: 'START' })
+  }, [])
   const togglePause = useCallback(() => dispatch({ type: 'PAUSE_TOGGLE' }), [])
   const newGame = useCallback(() => {
     worldRef.current = createWorld()
@@ -233,7 +259,13 @@ export function useGameEngine() {
     let last = performance.now()
 
     function frame(ts: number) {
-      const dt = Math.min((ts - last) / 1000, 1 / 30)
+      // Clamped below at 0, not just above: rAF timestamps are usually
+      // monotonic, but a dev-only double-mount (React StrictMode) or a
+      // backgrounded-tab resume can hand the callback an earlier `ts` than
+      // the `last` this closure already recorded, producing a negative dt
+      // that would tick world.elapsed/depth backwards — which is exactly
+      // what fed a negative "leagues" into the water-zone lookup once.
+      const dt = Math.max(0, Math.min((ts - last) / 1000, 1 / 30))
       last = ts
 
       if (phaseRef.current === 'playing') {
@@ -277,6 +309,23 @@ export function useGameEngine() {
             lastTickRef.current = next
             dispatch({ type: 'TICK', ...next })
           }
+        }
+      } else if (phaseRef.current === 'ready') {
+        // title screen attract mode: a simple wandering-and-firing AI keeps
+        // the board self-playing behind the "Press start" card. It runs on
+        // the same worldRef the real game uses, but `start()` resets that
+        // ref fresh, so the demo never bleeds into the player's own run.
+        const world = worldRef.current
+        demoSteerTimerRef.current -= dt
+        if (demoSteerTimerRef.current <= 0) {
+          demoSteerTimerRef.current = 0.7 + Math.random() * 1.1
+          if (Math.random() < 0.5) steerLeft(world)
+          else steerRight(world)
+        }
+        step(world, dt, { fire: true })
+        if (world.collided || world.gameWon) {
+          worldRef.current = createDemoWorld()
+          demoSteerTimerRef.current = 0
         }
       }
 

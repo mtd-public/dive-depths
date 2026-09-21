@@ -116,9 +116,15 @@ const FORMATION_DY = 60
 // 0.1 constant would round-trip through floating-point error and land the
 // "distance" a league short of where cleared + 1 should put it.
 const DEPTH_PER_LEAGUE = 10
-const BOSS_INTERVAL_LEAGUES = 2500
+export const BOSS_INTERVAL_LEAGUES = 2500
 export function leaguesForDepth(depth: number): number {
   return Math.floor(depth / DEPTH_PER_LEAGUE)
+}
+/** Inverse of leaguesForDepth — lets a caller seed `depth` from a leagues
+ *  figure directly (the title screen's self-playing demo uses this to
+ *  start a few water zones in rather than at the shallow green opening). */
+export function depthForLeagues(leagues: number): number {
+  return leagues * DEPTH_PER_LEAGUE
 }
 
 // The Kracken: a special orange variant of the boss, guaranteed at 20,000
@@ -641,12 +647,29 @@ function breaksPacifism(threat: Threat, world: World): boolean {
   return !(threat.type === 'mine' && world.boss !== null)
 }
 
+// Roughly on par with sustained missile fire (1 hp per FIRE_COOLDOWN,
+// ≈2.9/s) but a bit ahead of it — the beam is free damage on top of
+// whatever the player fires alongside it, so it should feel like the
+// ultimate it is without deleting a boss in one activation.
+const LASER_BOSS_DPS = 3
+
 /** The ultimate beam: while active, anything scrolling into its column is
- *  destroyed outright — including tentacles and mines, cleanly (no spray). */
-function laserSweep(world: World) {
+ *  destroyed outright — including tentacles and mines, cleanly (no spray).
+ *  It also damages the boss over time when swept across it, same as a
+ *  missile would, just continuously rather than in discrete hits. */
+function laserSweep(world: World, dt: number) {
   if (world.laserT <= 0) return
   const xMin = world.laserX - LASER_HALF_WIDTH
   const xMax = world.laserX + LASER_HALF_WIDTH
+  if (world.boss && world.boss.phase === 'fighting' && world.boss.x + BOSS_R > xMin && world.boss.x - BOSS_R < xMax) {
+    world.boss.hp -= LASER_BOSS_DPS * dt
+    if (world.boss.hp <= 0) {
+      world.boss.phase = 'exploding'
+      world.boss.phaseT = 0
+      world.killPoints += world.boss.variant === 'kracken' ? KRACKEN_KILL_POINTS : BOSS_KILL_POINTS
+      world.effects.push({ x: world.boss.x, y: world.boss.y, kind: 'blast' })
+    }
+  }
   const dead = new Set<number>()
   for (const threat of world.threats) {
     if (!threatInXBand(threat, xMin, xMax)) continue
@@ -893,7 +916,7 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   // the sub every frame so the player can sweep it across the board rather
   // than committing to wherever they were standing when it triggered.
   if (world.laserT > 0) world.laserX = world.subX
-  laserSweep(world)
+  laserSweep(world, dt)
   detonateFusedMines(world)
   updateBoss(world, dt)
 
