@@ -359,18 +359,27 @@ function speedForDepth(depth: number) {
   return Math.min(MAX_SCROLL_SPEED, BASE_SCROLL_SPEED + depth * SPEED_GAIN_PER_DEPTH)
 }
 
+// Red fish, anglers, squids, tentacles and mine walls are a mid-game band,
+// not a forever-after one — they only enter the mix between 1 and 10,000
+// leagues. Outside that window the roster narrows back down to fish, subs
+// and mines (plus whatever boss is due).
+const CREATURE_BAND_MIN_LEAGUES = 1
+const CREATURE_BAND_MAX_LEAGUES = 10000
+
 /** Threat mix skews toward subs, monsters and tentacles as depth increases. */
 function weightsForDepth(depth: number) {
   const k = Math.min(1, depth / 3600)
+  const leagues = leaguesForDepth(depth)
+  const inBand = leagues >= CREATURE_BAND_MIN_LEAGUES && leagues <= CREATURE_BAND_MAX_LEAGUES
   return {
     fish: 0.5 - 0.27 * k,
-    monster: 0.05 + 0.18 * k,
+    monster: inBand ? 0.05 + 0.18 * k : 0,
     sub: 0.13 + 0.13 * k,
     mine: 0.17 + 0.08 * k,
-    tentacle: 0.15 + 0.1 * k,
-    mineWall: 0.08 + 0.05 * k,
-    redFish: 0.12 + 0.03 * k,
-    squid: 0.1 + 0.05 * k,
+    tentacle: inBand ? 0.15 + 0.1 * k : 0,
+    mineWall: inBand ? 0.08 + 0.05 * k : 0,
+    redFish: inBand ? 0.12 + 0.03 * k : 0,
+    squid: inBand ? 0.1 + 0.05 * k : 0,
   }
 }
 
