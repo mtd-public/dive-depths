@@ -27,33 +27,46 @@ export interface SpriteAnim {
   loop: boolean
 }
 
-/** Master palette — hex values from the revamp concept doc. */
+/**
+ * Master palette — hex values from the revamp concept doc, darkened and
+ * extended for the second art pass: mid/base tones pull down so the
+ * bright rim-light and danger colors carry more contrast, and a handful
+ * of grime/moss/rust-bloom tones give hulls a weathered, lived-in read
+ * without breaking the "2–3 stepped tones, no gradients" rule (they're
+ * extra *steps*, applied as dither/speckle, never blends).
+ */
 export const PALETTE: Record<string, string> = {
   outline: '#0c1014',
-  steelDark: '#39424c',
-  steelMid: '#5a6670',
-  steelLight: '#8a97a0',
+  steelDark: '#2c333a',
+  steelMid: '#454f58',
+  steelLight: '#717f88',
   steelBright: '#c2ccd2',
-  oliveDark: '#2e3a26',
-  oliveMid: '#4a5a34',
-  oliveLight: '#6e7d46',
+  steelShadow: '#181d21',
+  oliveDark: '#232c1d',
+  oliveMid: '#3a4728',
+  oliveLight: '#5c6a3a',
   olivePale: '#93a05b',
-  rustDark: '#4a2d1c',
-  rustMid: '#7a4a26',
+  oliveShadow: '#141a10',
+  rustDark: '#3c2416',
+  rustMid: '#6a3f20',
   rustLight: '#a8703a',
+  rustBloom: '#552d14',
+  mossDark: '#293420',
+  mossLight: '#4f5f34',
   fireFlash: '#fff8d0',
   fireYellow: '#ffd23e',
   fireOrange: '#ff8c1a',
   fireDeep: '#c93a12',
-  smokeDark: '#16161c',
-  smokeMid: '#2c2c34',
-  smokeLight: '#4a4a54',
+  smokeDark: '#121218',
+  smokeMid: '#26262e',
+  smokeLight: '#454550',
   warnRed: '#d8302a',
   warnBright: '#ff5a4a',
   glowAqua: '#aef2e0',
   glowWarm: '#ffe9a0',
   bubble: '#cfeef2',
-  wetsuit: '#1c2830',
+  wetsuit: '#161f26',
+  chain: '#8a97a0',
 }
 
 /**
@@ -99,13 +112,18 @@ const LEGEND: Record<string, RGB> = {
   s: hexToRgb(PALETTE.steelMid),
   S: hexToRgb(PALETTE.steelLight),
   w: hexToRgb(PALETTE.steelBright),
+  x: hexToRgb(PALETTE.steelShadow),
   k: hexToRgb(PALETTE.oliveDark),
   v: hexToRgb(PALETTE.oliveMid),
   V: hexToRgb(PALETTE.oliveLight),
   L: hexToRgb(PALETTE.olivePale),
+  X: hexToRgb(PALETTE.oliveShadow),
   r: hexToRgb(PALETTE.rustDark),
   R: hexToRgb(PALETTE.rustMid),
   U: hexToRgb(PALETTE.rustLight),
+  p: hexToRgb(PALETTE.rustBloom),
+  a: hexToRgb(PALETTE.mossDark),
+  A: hexToRgb(PALETTE.mossLight),
   f: hexToRgb(PALETTE.fireFlash),
   y: hexToRgb(PALETTE.fireYellow),
   O: hexToRgb(PALETTE.fireOrange),
@@ -119,6 +137,7 @@ const LEGEND: Record<string, RGB> = {
   G: hexToRgb(PALETTE.glowWarm),
   b: hexToRgb(PALETTE.bubble),
   t: hexToRgb(PALETTE.wetsuit),
+  c: hexToRgb(PALETTE.chain),
 }
 
 // ---------------------------------------------------------------------------
@@ -249,17 +268,20 @@ function hash(x: number, y: number, s: number): number {
 
 interface HullPalette {
   outline: RGB
+  shadow: RGB // deep inner-hull shadow, one step out from the outline
   dark: RGB
   mid: RGB
   light: RGB
   spine: RGB
+  wear: RGB // moss/rust speckle scattered across the plating
 }
 
 /**
  * Build a symmetric top-down hull. `edge(y)` returns the left-edge column
  * for hull rows (null = no hull on that row); shading steps from outline
- * → dark → mid → light toward the spine, with seam rows and rivet
- * highlights along the plating.
+ * → shadow → dark → mid → light toward the spine, with seam rows, rivet
+ * highlights, and hashed weathering speckle (moss/rust patches) worked
+ * into the plating so nothing reads as clean-off-the-line.
  */
 function hullTopDown(
   w: number,
@@ -267,6 +289,7 @@ function hullTopDown(
   edge: (y: number) => number | null,
   pal: HullPalette,
   seamRows: number[],
+  wearSeed = 401,
 ): Frame {
   const f = blank(w, h)
   const cx = w / 2
@@ -280,7 +303,8 @@ function hullTopDown(
       const capped = above === null || below === null
       let c: RGB
       if (din === 0 || capped) c = pal.outline
-      else if (din <= 1) c = pal.dark
+      else if (din === 1) c = pal.shadow
+      else if (din === 2) c = pal.dark
       else {
         const span = cx - e
         const p = din / span
@@ -290,9 +314,11 @@ function hullTopDown(
         // checker dither at band boundaries keeps the stepping chunky
         if (p > 0.46 && p <= 0.5 && (x + y) % 2 === 0) c = pal.light
         if (p > 0.78 && p <= 0.82 && (x + y) % 2 === 0) c = pal.spine
+        // weathering speckle: sparse moss/rust freckling across open plating
+        if (p > 0.16 && p < 0.92 && hash(x, y, wearSeed) > 0.945) c = pal.wear
       }
       if (seamRows.includes(y) && din > 0 && !capped) {
-        c = din % 5 === 2 ? pal.light : pal.dark
+        c = din % 5 === 2 ? pal.light : pal.shadow
       }
       put(f, x, y, c)
       put(f, w - 1 - x, y, c)
@@ -330,10 +356,12 @@ function edgeProfile(points: [number, number][]): (y: number) => number | null {
 
 const STEEL: HullPalette = {
   outline: LEGEND.o,
+  shadow: LEGEND.x,
   dark: LEGEND.d,
   mid: LEGEND.s,
   light: LEGEND.S,
   spine: LEGEND.w,
+  wear: LEGEND.a,
 }
 
 /**
@@ -375,6 +403,21 @@ function buildPlayerBase(): Frame {
     [47, 13],
   ])
   const f = hullTopDown(32, 48, edge, STEEL, [13, 21, 31, 37])
+
+  // moss creep and rust weeps along the seams — even the player's boat has
+  // done hard time down here
+  const streaks: [number, number, number, boolean][] = [
+    [6, 22, 4, false],
+    [7, 14, 3, true],
+    [5, 32, 3, false],
+  ]
+  for (const [sx, sy, len, moss] of streaks) {
+    for (let i = 0; i < len; i++) {
+      const c = moss ? (i === 0 ? LEGEND.A : LEGEND.a) : i === 0 ? LEGEND.U : LEGEND.R
+      put(f, sx, sy + i, c)
+      put(f, 31 - sx, sy + i, c)
+    }
+  }
 
   // stern prop nacelles
   blit(f, playerProps(0), 8, 0)
@@ -442,10 +485,12 @@ export function buildPlayerSub(): { idle: Frame[]; bankL: Frame[]; bankR: Frame[
 
 const OLIVE: HullPalette = {
   outline: LEGEND.o,
+  shadow: LEGEND.X,
   dark: LEGEND.k,
   mid: LEGEND.v,
   light: LEGEND.V,
   spine: LEGEND.L,
+  wear: LEGEND.p,
 }
 
 function buildEnemyBase(lampBright: boolean): Frame {
@@ -754,7 +799,8 @@ function mineMap(lampBright: boolean): Frame {
         else if (l > -0.8) c = LEGEND.s
         else c = LEGEND.d
         if (l > -1.2 && l <= -0.8 && (x + y) % 2 === 0) c = LEGEND.s
-        if (y > cy + 2 && hash(x, y, 31) > 0.85) c = LEGEND.r
+        if (y > cy + 2 && hash(x, y, 31) > 0.8) c = LEGEND.r
+        if (y > cy + 1 && hash(x, y, 47) > 0.92) c = LEGEND.a
       }
       put(f, x, y, c)
     }
@@ -772,6 +818,43 @@ function mineMap(lampBright: boolean): Frame {
 
 export function buildMine(): Frame[] {
   return [mineMap(false), mineMap(true)]
+}
+
+// ---------------------------------------------------------------------------
+// Mooring chain — tethers a wall-mounted mine back to its anchor bolt
+// ---------------------------------------------------------------------------
+
+/** One link, alternating flat/edge-on like a real chain does. */
+function chainLink(edgeOn: boolean, seed: number): Frame {
+  const f = blank(8, 8)
+  const rusty = hash(seed, 0, 71) > 0.6
+  const ring = rusty ? LEGEND.R : LEGEND.c
+  if (edgeOn) {
+    for (let y = 1; y < 7; y++) put(f, 3, y, y === 1 || y === 6 ? LEGEND.o : ring)
+    for (let y = 2; y < 6; y++) put(f, 4, y, ring)
+  } else {
+    for (let x = 1; x < 7; x++) {
+      for (let y = 2; y < 6; y++) {
+        const edge = x === 1 || x === 6 || y === 2 || y === 5
+        put(f, x, y, edge ? LEGEND.o : ring)
+      }
+    }
+    put(f, 2, 3, LEGEND.w)
+  }
+  return f
+}
+
+/** A horizontal mooring line of interlocking links, `length` px long. */
+export function buildChain(length: number, seed: number): Frame {
+  const f = blank(Math.max(8, length), 8)
+  let x = 0
+  let i = 0
+  while (x < f.w) {
+    blit(f, chainLink(i % 2 === 1, seed + i), x, 0)
+    x += 5
+    i++
+  }
+  return f
 }
 
 // ---------------------------------------------------------------------------
