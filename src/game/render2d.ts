@@ -59,6 +59,11 @@ interface Spark {
   vy: number
   t: number
 }
+interface TrailPoint {
+  x: number
+  y: number
+  t: number
+}
 interface Puff {
   x: number
   y: number
@@ -96,6 +101,9 @@ export class Render2D {
   private chains = new Map<number, HTMLCanvasElement>()
   private subFlash = new Map<number, number>() // enemy sub id → muzzle flash time left
   private subFireIn = new Map<number, number>() // enemy sub id → last seen fireIn
+  // redFish/squid only: a short trail of bubbles marking recent positions
+  private trails = new Map<number, TrailPoint[]>()
+  private trailAccum = new Map<number, number>()
   private booms: Boom[] = []
   private rings: Ring[] = []
   private sparks: Spark[] = []
@@ -189,6 +197,20 @@ export class Render2D {
     return c
   }
 
+  /** Fading bubble breadcrumbs marking a redFish/squid's recent positions. */
+  private drawTrail(id: number): void {
+    const pts = this.trails.get(id)
+    if (!pts || !pts.length) return
+    const bub = this.fc(this.sprites.bubbles.frames[0])
+    for (const p of pts) {
+      const life = 1 - p.t / 0.9
+      if (life <= 0) continue
+      this.ctx.globalAlpha = life * 0.5
+      this.ctx.drawImage(bub, Math.round(p.x * K - bub.width / 2), Math.round(p.y * K - bub.height / 2))
+    }
+    this.ctx.globalAlpha = 1
+  }
+
   // -------------------------------------------------------------------------
 
   update(world: World, phase: GamePhase, dt: number, t: number): void {
@@ -206,6 +228,8 @@ export class Render2D {
       this.subFireIn.clear()
       this.tentacles.clear()
       this.chains.clear()
+      this.trails.clear()
+      this.trailAccum.clear()
     }
     this.lastElapsed = world.elapsed
 
@@ -289,6 +313,32 @@ export class Render2D {
         size: Math.floor(Math.random() * 2),
       })
     }
+    // redFish/squid: sample a trail point every ~90ms while they're alive
+    if (running) {
+      for (const threat of world.threats) {
+        if (threat.type !== 'redFish' && threat.type !== 'squid') continue
+        const acc = (this.trailAccum.get(threat.id) ?? 0) + dt
+        if (acc < 0.09) {
+          this.trailAccum.set(threat.id, acc)
+          continue
+        }
+        this.trailAccum.set(threat.id, 0)
+        const pts = this.trails.get(threat.id) ?? []
+        pts.push({ x: threat.x, y: threat.y, t: 0 })
+        if (pts.length > 6) pts.shift()
+        this.trails.set(threat.id, pts)
+      }
+    }
+    for (const pts of this.trails.values()) for (const p of pts) p.t += dt
+    for (const [id, pts] of this.trails) {
+      const kept = pts.filter((p) => p.t < 0.9)
+      if (kept.length) this.trails.set(id, kept)
+      else {
+        this.trails.delete(id)
+        this.trailAccum.delete(id)
+      }
+    }
+
     // enemy sub muzzle flashes: fireIn resets upward when a shot goes out
     for (const threat of world.threats) {
       if (threat.type !== 'sub') continue
@@ -380,9 +430,15 @@ export class Render2D {
           ? this.sprites.enemySubFire.frames[0]
           : this.animFrame('enemySub', t, threat.phase)
         this.drawAt(f, threat.x, threat.y)
+      } else if (threat.type === 'squid') {
+        // holds its column — no horizontal wander to face, just bob in place
+        this.drawTrail(threat.id)
+        this.drawAt(this.animFrame('squid', t, threat.phase), threat.x, threat.y)
       } else {
-        // fish → frogman squad, monster → angler drone; both face their motion
-        const name = threat.type === 'fish' ? 'frogman' : 'angler'
+        // fish → frogman squad, monster → angler drone, redFish → itself;
+        // all three face whichever way their wander is currently carrying them
+        if (threat.type === 'redFish') this.drawTrail(threat.id)
+        const name = threat.type === 'fish' ? 'frogman' : threat.type === 'redFish' ? 'redFish' : 'angler'
         const f = this.animFrame(name, t, threat.phase)
         const movingRight = Math.cos(world.elapsed * 1.6 + threat.phase) > 0
         if (movingRight) {
