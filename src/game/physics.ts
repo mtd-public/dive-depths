@@ -68,7 +68,7 @@ const MINE_WALL_INSET = 34
 const MINE_WALL_SPACING = 46
 
 const POWERUP_R = 16
-const POWERUP_SPACING = 1600
+const POWERUP_SPACING = 950
 const SHOTGUN_DURATION = 9
 const SHOTGUN_MISSILE_COUNT = 5
 const SHOTGUN_SPREAD_VX = 240
@@ -317,6 +317,16 @@ export interface World {
    *  clearing it — clearing here could race a render frame that hasn't
    *  read it yet. */
   effects: Effect[]
+  /** True until the player shoots (missile or laser) anything other than a
+   *  boss or one of its mine-squad mines — see the Pacifism achievement.
+   *  Ramming a threat with the hull doesn't count, only weapons fire. */
+  pacifist: boolean
+  /** Cumulative seconds the laser ultimate has spent actually firing this
+   *  run — see the laser-uptime achievement. */
+  laserActiveTotal: number
+  /** Cumulative seconds the shotgun buff has spent active this run — see
+   *  the shotgun-uptime achievement. */
+  shotgunActiveTotal: number
 }
 
 /** A fresh random target for the next spawn's travel distance, within
@@ -354,6 +364,9 @@ export function createWorld(): World {
     bossCount: 0,
     nextBossLeagues: BOSS_INTERVAL_LEAGUES,
     effects: [],
+    pacifist: true,
+    laserActiveTotal: 0,
+    shotgunActiveTotal: 0,
   }
 }
 
@@ -552,7 +565,7 @@ function spawnFormation(world: World, type: 'fish' | 'sub' | 'mine') {
 
 function pickPowerupType(): PowerupType {
   const r = Math.random()
-  if (r < 0.4) return 'shotgun'
+  if (r < 0.5) return 'shotgun'
   if (r < 0.78) return 'health'
   if (r < 0.95) return 'laser'
   return 'extraLife'
@@ -620,6 +633,14 @@ function threatInXBand(threat: Threat, xMin: number, xMax: number) {
   return threat.x + r > xMin && threat.x - r < xMax
 }
 
+/** Whether shooting this threat costs the Pacifism achievement — everything
+ *  does except a boss's own mine-squad mines, which only ever exist while
+ *  world.boss is set (normal roving mines are wiped when a boss fight
+ *  starts, and don't spawn again until it's over). */
+function breaksPacifism(threat: Threat, world: World): boolean {
+  return !(threat.type === 'mine' && world.boss !== null)
+}
+
 /** The ultimate beam: while active, anything scrolling into its column is
  *  destroyed outright — including tentacles and mines, cleanly (no spray). */
 function laserSweep(world: World) {
@@ -630,6 +651,7 @@ function laserSweep(world: World) {
   for (const threat of world.threats) {
     if (!threatInXBand(threat, xMin, xMax)) continue
     dead.add(threat.id)
+    if (breaksPacifism(threat, world)) world.pacifist = false
     world.killPoints += THREAT_SPEC[threat.type].points
     world.effects.push({ x: threat.type === 'tentacle' ? world.laserX : threat.x, y: threat.y, kind: 'kill' })
   }
@@ -793,8 +815,10 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   world.subX += (world.subTargetX - world.subX) * Math.min(1, dt / STEP_TIME)
   world.invincibleT = Math.max(0, world.invincibleT - dt)
   world.fireCooldown = Math.max(0, world.fireCooldown - dt)
+  if (world.laserT > 0) world.laserActiveTotal += dt
   world.laserT = Math.max(0, world.laserT - dt)
   if (world.weaponMode === 'shotgun') {
+    world.shotgunActiveTotal += dt
     world.weaponModeT -= dt
     if (world.weaponModeT <= 0) world.weaponMode = 'normal'
   }
@@ -901,11 +925,23 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   for (const powerup of world.powerups) {
     if (circlesOverlap(world.subX, SUB_Y, SUB_R, powerup.x, powerup.y, POWERUP_R)) {
       collected.add(powerup.id)
+      // Each weapon buff only ever touches its own state, so picking up one
+      // type never interrupts (or adds time to) whichever *other* type is
+      // currently running — a shotgun pickup mid-laser-beam doesn't cut the
+      // beam short, and vice versa. Only a same-type pickup extends.
       if (powerup.type === 'shotgun') {
         world.weaponMode = 'shotgun'
         world.weaponModeT = SHOTGUN_DURATION
       } else if (powerup.type === 'laser') {
-        world.laserCharges = Math.min(1, world.laserCharges + 1)
+        if (world.laserT > 0) {
+          // already firing — extend the beam seamlessly instead of banking
+          // a second charge that would need its own later fire press,
+          // which is what left the old "chained" beams with gaps between
+          // them
+          world.laserT += LASER_DURATION
+        } else {
+          world.laserCharges = Math.min(1, world.laserCharges + 1)
+        }
       } else if (powerup.type === 'extraLife') {
         // Uncapped, unlike a health refill — a genuine bonus life rather
         // than topping off the existing pool back up to LIVES_MAX.
@@ -943,6 +979,7 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
         spentMissiles.add(missile.id)
         world.killPoints += spec.points
         world.effects.push({ x: threat.x, y: threat.y, kind: 'kill' })
+        if (breaksPacifism(threat, world)) world.pacifist = false
         break
       }
     }

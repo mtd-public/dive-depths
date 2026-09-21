@@ -169,6 +169,172 @@ button {
   text-align: right;
 }
 
+/* ---------- Achievements ---------- */
+.achievements {
+  position: relative;
+}
+
+.achievements__trigger {
+  height: 28px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--btn-bg);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.achievements__trigger:hover,
+.achievements__trigger[aria-expanded='true'] {
+  background: var(--btn-bg-hover);
+  color: var(--text);
+}
+
+.achievements__count {
+  line-height: 1;
+}
+
+.achievements__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(280px, calc(100vw - 32px));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 8px 24px -8px rgba(20, 22, 30, 0.35);
+  z-index: 10;
+}
+
+.achievements__title {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.achievements__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.achievements__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.achievements__badge {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--gold);
+}
+
+.achievements__item:not(.achievements__item--done) .achievements__badge {
+  background: var(--btn-bg);
+}
+
+.achievements__item--done .achievements__badge {
+  background: #fff6df;
+  border-color: var(--gold);
+}
+
+.achievements__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.achievements__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.achievements__item:not(.achievements__item--done) .achievements__name {
+  color: var(--muted);
+}
+
+.achievements__desc {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* ---------- Achievement unlock toasts ---------- */
+.achievement-toasts {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 59px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.achievement-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: #17293a;
+  color: #eaf4f8;
+  box-shadow: 0 10px 28px -8px rgba(20, 22, 30, 0.5);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.achievement-toast__icon {
+  flex: none;
+  color: var(--gold);
+  display: flex;
+}
+
+.achievement-toast__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.achievement-toast__label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9db3c4;
+}
+
+.achievement-toast__name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
 /* ---------- Layout ---------- */
 /* The topbar keeps its measured height; the play area is the only thing
    that flexes, and min-height:0 lets it shrink rather than overflow. */
