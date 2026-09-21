@@ -299,7 +299,9 @@ const DESCRIPTIONS: Record<string, string> = {
   tracer: 'enemy tracer',
   shrapnel: 'mine shrapnel',
   frogman: 'frogman squad',
+  redFish: 'red fish · patrols row',
   angler: 'angler drone',
+  squid: 'squid · patrols column',
   enemySub: 'enemy sub',
   enemySubFire: 'enemy sub · firing',
   mine: 'contact mine',
@@ -416,7 +418,7 @@ const scene = document.querySelector<HTMLCanvasElement>('canvas.scene')!
 const sc = scene.getContext('2d')!
 sc.imageSmoothingEnabled = false
 
-type ThreatKind = 'mine' | 'frogman' | 'angler' | 'enemySub' | 'mineWall'
+type ThreatKind = 'mine' | 'frogman' | 'angler' | 'enemySub' | 'mineWall' | 'redFish' | 'squid'
 interface Threat {
   kind: ThreatKind
   x: number
@@ -427,6 +429,11 @@ interface Threat {
   flash: number
   /** mineWall only: which wall it's chained to, for the tether draw. */
   side?: 'left' | 'right'
+  /** squid only: the scroll-carried anchor its vertical bob centers on. */
+  baseY?: number
+  /** redFish/squid only: a short trail of bubbles marking recent positions. */
+  trail?: { x: number; y: number; t: number }[]
+  trailAcc?: number
 }
 interface Shot {
   x: number
@@ -451,7 +458,15 @@ interface Puff {
   size: number
 }
 
-const RADII: Record<ThreatKind, number> = { mine: 9, frogman: 11, angler: 13, enemySub: 11, mineWall: 9 }
+const RADII: Record<ThreatKind, number> = {
+  mine: 9,
+  frogman: 11,
+  angler: 13,
+  enemySub: 11,
+  mineWall: 9,
+  redFish: 10,
+  squid: 11,
+}
 const SUB_Y = 44
 
 const world = {
@@ -559,20 +574,35 @@ function spawnMineWall(now: number): void {
 }
 
 function spawnThreat(now: number): void {
-  const kinds: ThreatKind[] = ['frogman', 'mine', 'enemySub', 'frogman', 'angler', 'mine', 'mineWall']
+  const kinds: ThreatKind[] = [
+    'frogman',
+    'mine',
+    'enemySub',
+    'redFish',
+    'frogman',
+    'angler',
+    'mine',
+    'squid',
+    'mineWall',
+  ]
   const kind = kinds[spawnCycle++ % kinds.length]
   if (kind === 'mineWall') {
     spawnMineWall(now)
     return
   }
+  const y = H + 24
   world.threats.push({
     kind,
     x: 24 + Math.random() * (W - 48),
-    y: H + 24,
-    vx: kind === 'mine' ? 0 : (Math.random() < 0.5 ? -1 : 1) * (10 + Math.random() * 14),
+    y,
+    vx:
+      kind === 'mine' || kind === 'squid'
+        ? 0
+        : (Math.random() < 0.5 ? -1 : 1) * (kind === 'redFish' ? 20 + Math.random() * 18 : 10 + Math.random() * 14),
     born: now,
     fireT: 1 + Math.random(),
     flash: 0,
+    baseY: kind === 'squid' ? y : undefined,
   })
 }
 
@@ -617,10 +647,29 @@ function update(dt: number, now: number): void {
 
   // threats rise, wander, and shoot
   for (const th of world.threats) {
-    th.y -= 34 * dt
+    if (th.kind === 'squid') {
+      // holds its column, bobs up/down on top of the normal scroll
+      th.baseY = (th.baseY ?? th.y) - 34 * dt
+      th.y = th.baseY + Math.sin(now * 1.3 + th.born) * 26
+    } else {
+      th.y -= 34 * dt
+    }
     th.x += th.vx * dt
     if (th.x < 20 || th.x > W - 20) th.vx *= -1
     th.flash = Math.max(0, th.flash - dt)
+    if (th.kind === 'redFish' || th.kind === 'squid') {
+      th.trailAcc = (th.trailAcc ?? 0) + dt
+      if (th.trailAcc >= 0.09) {
+        th.trailAcc = 0
+        th.trail = th.trail ?? []
+        th.trail.push({ x: th.x, y: th.y, t: 0 })
+        if (th.trail.length > 6) th.trail.shift()
+      }
+      if (th.trail) {
+        for (const p of th.trail) p.t += dt
+        th.trail = th.trail.filter((p) => p.t < 0.9)
+      }
+    }
     if (th.kind === 'enemySub' && th.y < H - 40 && th.y > 120) {
       th.fireT -= dt
       if (th.fireT <= 0) {
@@ -730,6 +779,16 @@ function draw(now: number): void {
 
   // threats
   for (const th of world.threats) {
+    if (th.trail && (th.kind === 'redFish' || th.kind === 'squid')) {
+      const b0 = fc(bub[0])
+      for (const p of th.trail) {
+        const life = 1 - p.t / 0.9
+        if (life <= 0) continue
+        sc.globalAlpha = life * 0.5
+        sc.drawImage(b0, Math.round(p.x - b0.width / 2), Math.round(p.y - b0.height / 2))
+      }
+      sc.globalAlpha = 1
+    }
     if (th.kind === 'mine') {
       const blinkFps = th.y < SUB_Y + 150 ? 8 : 3 // fuse arming = faster blink
       const f = sprites.mine.frames[Math.floor(now * blinkFps) % 2]

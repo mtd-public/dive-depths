@@ -67,6 +67,8 @@ export const PALETTE: Record<string, string> = {
   bubble: '#cfeef2',
   wetsuit: '#161f26',
   chain: '#8a97a0',
+  squidDark: '#3a5568',
+  squidLight: '#bfe4ee',
 }
 
 /**
@@ -138,6 +140,8 @@ const LEGEND: Record<string, RGB> = {
   b: hexToRgb(PALETTE.bubble),
   t: hexToRgb(PALETTE.wetsuit),
   c: hexToRgb(PALETTE.chain),
+  q: hexToRgb(PALETTE.squidDark),
+  Q: hexToRgb(PALETTE.squidLight),
 }
 
 // ---------------------------------------------------------------------------
@@ -623,6 +627,53 @@ export function buildFrogman(): Frame[] {
 }
 
 // ---------------------------------------------------------------------------
+// Red fish — 22×14, facing left, holds its row and patrols side to side
+// ---------------------------------------------------------------------------
+
+function redFishHalfH(x: number): number {
+  if (x < 3 || x > 16) return 0
+  if (x <= 8) return Math.round(1.5 + (x - 3) * 0.75)
+  if (x <= 11) return 5
+  return Math.round(5 - (x - 11) * 1.1)
+}
+
+function redFishMap(tailWag: number): Frame {
+  const f = blank(22, 14)
+  const cy = 7
+  for (let x = 3; x <= 16; x++) {
+    const hh = redFishHalfH(x)
+    for (let y = cy - hh; y <= cy + hh; y++) {
+      const edge = y === cy - hh || y === cy + hh || redFishHalfH(x - 1) === 0 || redFishHalfH(x + 1) === 0
+      let c: RGB
+      if (edge) c = LEGEND.o
+      else if (y > cy + hh - 2) c = LEGEND.r // darker belly shadow
+      else if (y < cy - hh + 2) c = LEGEND.E // bright dorsal ridge
+      else c = hash(x, y, 13) > 0.86 ? LEGEND.E : LEGEND.e
+      put(f, x, y, c)
+    }
+  }
+  // gill mark
+  put(f, 8, cy - 1, LEGEND.o)
+  put(f, 8, cy, LEGEND.o)
+  put(f, 8, cy + 1, LEGEND.o)
+  // dorsal fin riding the back
+  put(f, 9, cy - redFishHalfH(9) - 1, LEGEND.o)
+  put(f, 10, cy - redFishHalfH(10) - 2, LEGEND.C)
+  put(f, 11, cy - redFishHalfH(11) - 1, LEGEND.o)
+  // tail fin — two lobes that swap which leads for the wag
+  const lobe = tailWag === 0 ? -1 : 1
+  blit(f, parseMap(['oo.', '.Co', 'oCo', '.Co', 'oo.']), 16, cy - 2 + lobe)
+  // eye
+  put(f, 6, cy - 1, LEGEND.o)
+  put(f, 6, cy, LEGEND.w)
+  return f
+}
+
+export function buildRedFish(): Frame[] {
+  return [redFishMap(0), redFishMap(1), redFishMap(0)]
+}
+
+// ---------------------------------------------------------------------------
 // Angler drone — 32×24, facing left, replaces the deep monster
 // ---------------------------------------------------------------------------
 
@@ -751,6 +802,66 @@ export function buildAngler(): Frame[] {
     anglerMap(true, true),
     anglerMap(true, false),
   ]
+}
+
+// ---------------------------------------------------------------------------
+// Squid — 20×28, mantle up top with trailing tentacles, holds its column
+// and bobs up/down instead of wandering side to side. Pale ghost-white and
+// ice blue, so it reads as a different kind of threat from the olive drones.
+// ---------------------------------------------------------------------------
+
+function squidHalfW(y: number): number {
+  if (y < 0 || y > 11) return 0
+  if (y <= 2) return 2 + y
+  if (y <= 7) return 5
+  return Math.round(5 - (y - 7) * 1.4)
+}
+
+function squidMap(pulse: boolean, tentaclePhase: number): Frame {
+  const f = blank(20, 28)
+  const cx = 10
+  // mantle: pale ghost-white crown fading to ice blue, deep blue at the rim
+  for (let y = 0; y <= 11; y++) {
+    const half = squidHalfW(y) + (pulse ? 1 : 0)
+    if (half <= 0) continue
+    for (let x = cx - half; x <= cx + half; x++) {
+      const edge = x === cx - half || x === cx + half || y === 11
+      let c: RGB
+      if (edge) c = LEGEND.o
+      else if (y < 3) c = LEGEND.b
+      else c = hash(x, y, 41) > 0.86 ? LEGEND.b : LEGEND.Q
+      put(f, x, y, c)
+    }
+  }
+  // small triangular fins either side, roughly mid-mantle
+  const finY = 5
+  const finHalf = squidHalfW(finY)
+  blit(f, parseMap(['o.', 'Qo', 'o.']), cx - finHalf - 2, finY - 1)
+  blit(f, mirrorX(parseMap(['o.', 'oQ', 'o.'])), cx + finHalf, finY - 1)
+  // eyes: dark socket, glowing aqua core
+  put(f, cx - 3, 4, LEGEND.o)
+  put(f, cx - 3, 5, LEGEND.g)
+  put(f, cx + 2, 4, LEGEND.o)
+  put(f, cx + 2, 5, LEGEND.g)
+  // tentacles: several wavy pale strands trailing down from the mantle base
+  const count = 5
+  for (let i = 0; i < count; i++) {
+    const baseX = cx - 6 + i * 3
+    const len = 13 + (i % 3) * 2
+    for (let j = 0; j < len; j++) {
+      const y = 11 + j
+      if (y >= f.h) break
+      const wave = Math.sin(j * 0.5 + i * 1.3 + tentaclePhase) * 1.6
+      const x = Math.round(baseX + wave)
+      put(f, x, y, j % 4 === 0 ? LEGEND.b : LEGEND.Q)
+      put(f, x + 1, y, LEGEND.q)
+    }
+  }
+  return f
+}
+
+export function buildSquid(): Frame[] {
+  return [squidMap(false, 0), squidMap(true, 1.6), squidMap(false, 3.2)]
 }
 
 // ---------------------------------------------------------------------------
@@ -1353,7 +1464,9 @@ export function buildAllSprites(): SpriteSet {
     tracer: { frames: buildTracer(), fps: 14, loop: true },
     shrapnel: { frames: buildShrapnel(), fps: 10, loop: true },
     frogman: { frames: buildFrogman(), fps: 7, loop: true },
+    redFish: { frames: buildRedFish(), fps: 6, loop: true },
     angler: { frames: buildAngler(), fps: 5, loop: true },
+    squid: { frames: buildSquid(), fps: 4, loop: true },
     enemySub: { frames: enemySub.run, fps: 5, loop: true },
     enemySubFire: { frames: [enemySub.fire], fps: 1, loop: false },
     mine: { frames: buildMine(), fps: 3, loop: true },

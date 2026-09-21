@@ -178,26 +178,37 @@ export interface Boss {
   powerupIn: number
 }
 
-export type ThreatType = 'fish' | 'monster' | 'sub' | 'mine' | 'tentacle' | 'mineWall'
+export type ThreatType = 'fish' | 'monster' | 'sub' | 'mine' | 'tentacle' | 'mineWall' | 'redFish' | 'squid'
 
 interface ThreatSpec {
   r: number
   points: number
   wander: number
+  /** Vertical counterpart to `wander` — a squid's own bob amplitude, layered
+   *  on top of the normal scroll rather than replacing it. Zero for every
+   *  other type, which just scrolls straight up. */
+  vwander: number
 }
 
 const THREAT_SPEC: Record<ThreatType, ThreatSpec> = {
-  fish: { r: 16, points: 5, wander: 34 },
-  monster: { r: 25, points: 12, wander: 20 },
-  sub: { r: 22, points: 18, wander: 0 },
-  mine: { r: 20, points: 25, wander: 0 },
+  fish: { r: 16, points: 5, wander: 34, vwander: 0 },
+  monster: { r: 25, points: 12, wander: 20, vwander: 0 },
+  sub: { r: 22, points: 18, wander: 0, vwander: 0 },
+  mine: { r: 20, points: 25, wander: 0, vwander: 0 },
   // Not a point hazard — collision uses `side`/`reach` instead of `r`, and
   // it's only ever destroyed by the laser ultimate, hence the points value.
-  tentacle: { r: 0, points: 20, wander: 0 },
+  tentacle: { r: 0, points: 20, wander: 0, vwander: 0 },
   // A moored mine: same blast as a free mine, but bolted in place (wander 0)
   // and — critically — never entered into detonateFusedMines below, so it
   // only ever goes off from a direct hit.
-  mineWall: { r: 20, points: 25, wander: 0 },
+  mineWall: { r: 20, points: 25, wander: 0, vwander: 0 },
+  // Holds its row: scroll carries it upward like anything else, but its own
+  // motion is a wide horizontal patrol rather than the timid fish wander.
+  redFish: { r: 14, points: 8, wander: 60, vwander: 0 },
+  // Holds its column instead — no x wander at all, but a real vertical bob
+  // layered on the scroll (see `baseY` below), so it patrols up/down within
+  // its lane rather than drifting sideways.
+  squid: { r: 15, points: 10, wander: 0, vwander: 56 },
 }
 
 export interface Threat {
@@ -212,6 +223,10 @@ export interface Threat {
    *  also uses `reach` for how far across it extends. */
   side?: 'left' | 'right'
   reach?: number
+  /** Squid only: the scroll-carried anchor its vwander bob is centered on —
+   *  y itself is recomputed from this every frame, the same relationship
+   *  baseX has to x for the horizontal wander types. */
+  baseY?: number
 }
 
 export interface Missile {
@@ -348,10 +363,21 @@ function weightsForDepth(depth: number) {
     mine: 0.17 + 0.08 * k,
     tentacle: 0.15 + 0.1 * k,
     mineWall: 0.08 + 0.05 * k,
+    redFish: 0.12 + 0.03 * k,
+    squid: 0.1 + 0.05 * k,
   }
 }
 
-const THREAT_TYPES: ThreatType[] = ['fish', 'monster', 'sub', 'mine', 'tentacle', 'mineWall']
+const THREAT_TYPES: ThreatType[] = [
+  'fish',
+  'monster',
+  'sub',
+  'mine',
+  'tentacle',
+  'mineWall',
+  'redFish',
+  'squid',
+]
 
 function pickThreatType(depth: number): ThreatType {
   const w = weightsForDepth(depth)
@@ -391,12 +417,14 @@ function spawnThreat(world: World) {
 
   const spec = THREAT_SPEC[type]
   const x = THREAT_MARGIN + spec.r + Math.random() * (BOARD_W - (THREAT_MARGIN + spec.r) * 2)
+  const y = BOARD_H + SPAWN_MARGIN
   world.threats.push({
     id: world.nextId++,
     type,
     x,
     baseX: x,
-    y: BOARD_H + SPAWN_MARGIN,
+    y,
+    baseY: spec.vwander > 0 ? y : undefined,
     phase: Math.random() * Math.PI * 2,
     fireIn: SUB_FIRE_MIN + Math.random() * (SUB_FIRE_MAX - SUB_FIRE_MIN),
   })
@@ -731,10 +759,18 @@ export function step(world: World, dt: number, input: { fire: boolean }) {
   }
 
   for (const threat of world.threats) {
-    threat.y -= speed * dt
-    const wander = THREAT_SPEC[threat.type].wander
-    if (wander > 0) {
-      threat.x = threat.baseX + Math.sin(world.elapsed * 1.6 + threat.phase) * wander
+    const spec = THREAT_SPEC[threat.type]
+    if (spec.vwander > 0 && threat.baseY !== undefined) {
+      // squid: the anchor scrolls exactly like everything else, but the
+      // threat's actual y is a bob layered on top of it, not the anchor
+      // itself — same relationship wander below has to baseX.
+      threat.baseY -= speed * dt
+      threat.y = threat.baseY + Math.sin(world.elapsed * 1.3 + threat.phase) * spec.vwander
+    } else {
+      threat.y -= speed * dt
+    }
+    if (spec.wander > 0) {
+      threat.x = threat.baseX + Math.sin(world.elapsed * 1.6 + threat.phase) * spec.wander
     }
     if (threat.type === 'sub') {
       threat.fireIn -= dt
