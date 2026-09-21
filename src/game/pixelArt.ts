@@ -69,6 +69,9 @@ export const PALETTE: Record<string, string> = {
   chain: '#8a97a0',
   squidDark: '#3a5568',
   squidLight: '#bfe4ee',
+  krakenHide: '#7a2c0a',
+  krakenPlate: '#c65a12',
+  krakenPlateLight: '#ff9a3d',
 }
 
 /**
@@ -91,6 +94,16 @@ export const WATER_PALETTES: Record<'blue' | 'green' | 'purple' | 'red', WaterPa
 /** The water changes every 5000 leagues, cycling green → blue → purple → red. */
 export const WATER_CYCLE_LEAGUES = 5000
 export const WATER_ORDER: (keyof typeof WATER_PALETTES)[] = ['green', 'blue', 'purple', 'red']
+
+/**
+ * The water a boss fight floods the board with, echoing that boss's own
+ * hide/plate palette (smoky gunmetal for the Warden, magma rust for the
+ * Kracken) so its whole lair reads as its domain, not just its silhouette.
+ */
+export const BOSS_TINTS: Record<'warden' | 'kracken', WaterPalette> = {
+  warden: { label: 'The Warden', bands: ['#454550', '#26262e', '#181d21', '#121218'] },
+  kracken: { label: 'The Kracken', bands: ['#ff9a3d', '#c65a12', '#7a2c0a', '#3a1206'] },
+}
 
 export function waterAt(leagues: number): WaterPalette {
   const i = Math.floor(Math.max(0, leagues) / WATER_CYCLE_LEAGUES) % WATER_ORDER.length
@@ -142,6 +155,9 @@ const LEGEND: Record<string, RGB> = {
   c: hexToRgb(PALETTE.chain),
   q: hexToRgb(PALETTE.squidDark),
   Q: hexToRgb(PALETTE.squidLight),
+  h: hexToRgb(PALETTE.krakenHide),
+  H: hexToRgb(PALETTE.krakenPlate),
+  i: hexToRgb(PALETTE.krakenPlateLight),
 }
 
 // ---------------------------------------------------------------------------
@@ -1012,15 +1028,18 @@ const KRACKEN: BossParams = {
   w: 240,
   h: 120,
   tentacles: 16,
-  hide: LEGEND.r,
-  plate: LEGEND.R,
-  plateLight: LEGEND.U,
+  // its own burnt-orange body palette, not the general rust family other
+  // wear/scarring uses elsewhere — keeps the Kracken reading orange, not
+  // muddy brown, the way its accents and eyes always have
+  hide: LEGEND.h,
+  plate: LEGEND.H,
+  plateLight: LEGEND.i,
   accent1: LEGEND.C,
-  accent2: LEGEND.O,
+  accent2: LEGEND.y,
   eyeCore: LEGEND.O,
   eyeBright: LEGEND.y,
   eyeHalo: LEGEND.C,
-  sucker: LEGEND.U,
+  sucker: LEGEND.i,
   glowCracks: true,
   chains: false,
   seed: 202,

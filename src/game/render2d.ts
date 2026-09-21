@@ -29,6 +29,7 @@ import {
   buildTentacleArm,
   frameToCanvas,
   mirrorX,
+  BOSS_TINTS,
   WATER_CYCLE_LEAGUES,
   WATER_ORDER,
   WATER_PALETTES,
@@ -76,6 +77,12 @@ interface Ambient {
   size: number
   speed: number
 }
+interface EdgeBubble {
+  x: number
+  yOff: number
+  phase: number
+  size: number
+}
 
 /** A moored mine's gentle vertical float on its chain — slightly up, slightly
  *  down, never the fast arming blink a free proximity mine gets. */
@@ -109,6 +116,7 @@ export class Render2D {
   private sparks: Spark[] = []
   private wake: Puff[] = []
   private ambient: Ambient[] = []
+  private bossEdgeBubbles: EdgeBubble[] = []
   private consumedEffects = 0
   private lastElapsed = 0
   private bossChainT = 0
@@ -126,6 +134,14 @@ export class Render2D {
         y: Math.random() * RH,
         size: Math.floor(Math.random() * 3),
         speed: 8 + Math.random() * 14,
+      })
+    }
+    for (let i = 0; i < 24; i++) {
+      this.bossEdgeBubbles.push({
+        x: Math.random() * RW,
+        yOff: (Math.random() * 2 - 1) * 16,
+        phase: Math.random() * Math.PI * 2,
+        size: Math.floor(Math.random() * 3),
       })
     }
   }
@@ -382,6 +398,57 @@ export class Render2D {
       for (let x = (i % 2); x < RW; x += 2) ctx.fillRect(x, y, 1, 1)
     }
     ctx.globalAlpha = 1
+
+    // --- boss lair: flood the water around and beneath an active boss with
+    // its own hide/plate palette, bleeding up well above its silhouette so
+    // the fight reads as happening inside its domain — an all-encompassing
+    // presence, not just a big sprite floating on the normal water. ---
+    if (world.boss) {
+      const variant: 'warden' | 'kracken' = world.boss.variant === 'kracken' ? 'kracken' : 'warden'
+      const tint = BOSS_TINTS[variant]
+      const spriteH = this.sprites[variant === 'kracken' ? 'bossKracken' : 'bossWarden'].frames[0].h
+      const edgeY = world.boss.y * K - spriteH * 0.7
+      const fadeStart = edgeY - 130
+      if (edgeY < RH) {
+        // creeping fade: its color bleeds up into the normal water in a few
+        // stepped tones (no smooth canvas gradients, same rule as everything
+        // else), well above where the boss itself actually sits
+        const fadeSteps = 7
+        const fadeSpan = Math.max(0, edgeY - fadeStart)
+        for (let i = 0; i < fadeSteps; i++) {
+          const y0 = fadeStart + (fadeSpan * i) / fadeSteps
+          const y1 = fadeStart + (fadeSpan * (i + 1)) / fadeSteps
+          if (y1 < 0 || y0 > RH) continue
+          ctx.fillStyle = mixHex(bands[bands.length - 1], tint.bands[0], (i + 1) / fadeSteps)
+          ctx.fillRect(0, Math.floor(Math.max(0, y0)), RW, Math.ceil(Math.min(RH, y1) - Math.max(0, y0)))
+        }
+        // full tint from there down to the bottom of the board
+        const top = Math.max(0, edgeY)
+        const tBandH = (RH - top) / tint.bands.length
+        for (let i = 0; i < tint.bands.length; i++) {
+          ctx.fillStyle = tint.bands[i]
+          ctx.fillRect(0, Math.floor(top + i * tBandH), RW, Math.ceil(tBandH))
+        }
+        ctx.globalAlpha = 0.55
+        for (let i = 1; i < tint.bands.length; i++) {
+          ctx.fillStyle = tint.bands[i]
+          const y = Math.floor(top + i * tBandH) - 1
+          for (let x = (i % 2); x < RW; x += 2) ctx.fillRect(x, y, 1, 1)
+        }
+        ctx.globalAlpha = 1
+
+        // bubbles shrouding the transition, obscuring the seam
+        const bossBub = this.sprites.bubbles.frames
+        for (const b of this.bossEdgeBubbles) {
+          const yy = edgeY + b.yOff + Math.sin(t * 1.1 + b.phase) * 8
+          if (yy < -6 || yy > RH + 6) continue
+          const xx = b.x + Math.sin(t * 0.6 + b.phase * 1.7) * 6
+          ctx.globalAlpha = 0.5
+          ctx.drawImage(this.fc(bossBub[b.size]), Math.round(xx), Math.round(yy))
+        }
+        ctx.globalAlpha = 1
+      }
+    }
 
     // --- ambient bubbles ---
     const bub = this.sprites.bubbles.frames

@@ -80,8 +80,11 @@ export const LASER_DURATION = 5
 const LASER_COOLDOWN = 0.6
 export const LASER_HALF_WIDTH = BOARD_W * 0.5 * 0.5
 
-const BASE_SCROLL_SPEED = 170
-const MAX_SCROLL_SPEED = 360
+// Slowed by a third from the original 170/360 pace — gives the player more
+// time to read and dodge incoming threats without changing anything else
+// about how spawns or difficulty scale.
+const BASE_SCROLL_SPEED = 113
+const MAX_SCROLL_SPEED = 240
 const SPEED_GAIN_PER_DEPTH = 0.012
 const SPAWN_SPACING = 260
 const SPAWN_MARGIN = 220
@@ -102,13 +105,13 @@ const FORMATION_DY = 60
 // a couple hundred units a second, so a milestone counted directly in that
 // unit would fire every few seconds. `leaguesForDepth` rescales it into a
 // much coarser "distance" purely for pacing the boss cadence and for the
-// number the player sees — about a minute of normal diving between fights.
+// number the player sees — a few minutes of normal diving between fights.
 // An integer divisor, not a 0.1 multiplier — dividing by 10 keeps the
 // post-boss depth reset (below) exact, where multiplying by a fractional
 // 0.1 constant would round-trip through floating-point error and land the
 // "distance" a league short of where cleared + 1 should put it.
 const DEPTH_PER_LEAGUE = 10
-const BOSS_INTERVAL_LEAGUES = 1000
+const BOSS_INTERVAL_LEAGUES = 2500
 export function leaguesForDepth(depth: number): number {
   return Math.floor(depth / DEPTH_PER_LEAGUE)
 }
@@ -125,14 +128,15 @@ const KRACKEN_HP = 40
 const KRACKEN_KILL_POINTS = 1000
 
 // The boss holds low on the board — a vast, mostly-submerged creature
-// rather than something that swims up to meet the sub — but not so low
-// it falls outside the camera's visible range on anything but a tall,
-// narrow viewport (frameCamera's visible height shrinks a lot on wider
-// aspect ratios). Its mine squads spawn separately, from the same edge
-// every other threat does, so they still cross the same distance (and get
-// the same proximity-fuse warning) as a normal mine, regardless of where
-// the boss itself sits.
-const BOSS_Y = BOARD_H * 0.58
+// rather than something that swims up to meet the sub — anchored close to
+// the bottom edge of the board so it reads as looming up from underneath
+// on a tall portrait viewport (the renderer draws the whole board, no
+// camera crop, so this fraction of BOARD_H is exactly where it sits on
+// screen). Its mine squads spawn separately, from the same edge every
+// other threat does, so they still cross the same distance (and get the
+// same proximity-fuse warning) as a normal mine, regardless of where the
+// boss itself sits.
+const BOSS_Y = BOARD_H * 0.81
 const BOSS_ENTER_SPEED = 140
 export const BOSS_R = 50
 const BOSS_HP_MIN = 15
@@ -146,9 +150,11 @@ const BOSS_ATTACK_MIN = 3.6
 const BOSS_ATTACK_MAX = 5.5
 export const BOSS_MOUTH_OPEN_TIME = 0.5
 export const BOSS_EXPLODE_TIME = 1.4
-const BOSS_MINE_SQUAD_SIZES = [3, 6, 9] as const
-const BOSS_MINE_COLS = 3
-const BOSS_MINE_COL_SPACING = 100
+// Barrel formations are laid out on a fixed grid, one shape picked per
+// squad rather than always the same flat block — see spawnBossMineSquad.
+const BOSS_MINE_GRID_COLS = 5
+const BOSS_MINE_GRID_ROWS = 5
+const BOSS_MINE_COL_SPACING = 78
 const BOSS_MINE_ROW_SPACING = 90
 
 // The Kracken fight throws the player a lot more of a lifeline than a
@@ -625,26 +631,56 @@ function spawnBoss(world: World) {
   }
 }
 
-/** A grid "squad" of 5, 10 or 15 ordinary mine threats, centered under the
- *  boss and spawned from the same off-screen edge every other threat uses
- *  — so despite coming from its mouth narratively, they cross the same
- *  distance (and get the same proximity-fuse warning) as any other mine. */
-function spawnBossMineSquad(world: World, boss: Boss) {
-  const count = BOSS_MINE_SQUAD_SIZES[Math.floor(Math.random() * BOSS_MINE_SQUAD_SIZES.length)]
-  const rows = count / BOSS_MINE_COLS
-  const half = THREAT_SPEC.mine.r + THREAT_MARGIN
-  const totalWidth = BOSS_MINE_COL_SPACING * (BOSS_MINE_COLS - 1)
-  const startX = Math.max(half, Math.min(BOARD_W - half - totalWidth, boss.x - totalWidth / 2))
+type MineFormation = 'leftDiagonal' | 'rightDiagonal' | 'cross' | 'xShape'
+const MINE_FORMATIONS: MineFormation[] = ['leftDiagonal', 'rightDiagonal', 'cross', 'xShape']
 
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < BOSS_MINE_COLS; col++) {
+/** Which (col, row) cells of the BOSS_MINE_GRID_COLS × BOSS_MINE_GRID_ROWS
+ *  grid a formation fills. Each shape is defined per row so spawnBossMine-
+ *  Squad can cheaply guarantee every row leaves at least one open column. */
+function formationCols(shape: MineFormation, row: number): number[] {
+  const lastCol = BOSS_MINE_GRID_COLS - 1
+  const midCol = Math.floor(BOSS_MINE_GRID_COLS / 2)
+  const midRow = Math.floor(BOSS_MINE_GRID_ROWS / 2)
+  switch (shape) {
+    case 'leftDiagonal':
+      return [row]
+    case 'rightDiagonal':
+      return [lastCol - row]
+    case 'cross':
+      return row === midRow ? Array.from({ length: BOSS_MINE_GRID_COLS }, (_, c) => c) : [midCol]
+    case 'xShape': {
+      const cols = new Set([row, lastCol - row])
+      return [...cols]
+    }
+  }
+}
+
+/** A squad of ordinary mine threats laid out in one of a few varied barrel
+ *  formations (a diagonal wall leaning either way, a cross, an X), centered
+ *  under the boss and spawned from the same off-screen edge every other
+ *  threat uses — so despite coming from its mouth narratively, they cross
+ *  the same distance (and get the same proximity-fuse warning) as any other
+ *  mine. Whatever the shape, every row leaves at least one column open —
+ *  the formation scrolls up as a rigid block, so that's a guaranteed lane
+ *  through it at the moment each row reaches the player. */
+function spawnBossMineSquad(world: World, boss: Boss) {
+  const shape = MINE_FORMATIONS[Math.floor(Math.random() * MINE_FORMATIONS.length)]
+  const half = THREAT_SPEC.mine.r + THREAT_MARGIN
+  const totalWidth = BOSS_MINE_COL_SPACING * (BOSS_MINE_GRID_COLS - 1)
+  const startX = Math.max(half, Math.min(BOARD_W - half - totalWidth, boss.x - totalWidth / 2))
+  const y0 = BOARD_H + SPAWN_MARGIN
+
+  for (let row = 0; row < BOSS_MINE_GRID_ROWS; row++) {
+    const cols = formationCols(shape, row)
+    if (cols.length >= BOSS_MINE_GRID_COLS) cols.splice(Math.floor(Math.random() * cols.length), 1)
+    for (const col of cols) {
       const x = startX + col * BOSS_MINE_COL_SPACING
       world.threats.push({
         id: world.nextId++,
         type: 'mine',
         x,
         baseX: x,
-        y: BOARD_H + SPAWN_MARGIN + row * BOSS_MINE_ROW_SPACING,
+        y: y0 + row * BOSS_MINE_ROW_SPACING,
         phase: Math.random() * Math.PI * 2,
         fireIn: 0,
       })

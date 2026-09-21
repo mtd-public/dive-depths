@@ -319,7 +319,7 @@ const DESCRIPTIONS: Record<string, string> = {
 
 // bosses get the hangar, not a roster card
 const BOSSES: Record<string, { title: string; when: string; cls: string }> = {
-  bossWarden: { title: 'THE WARDEN', when: 'EVERY 1000 LEAGUES', cls: '' },
+  bossWarden: { title: 'THE WARDEN', when: 'EVERY 2500 LEAGUES', cls: '' },
   bossKracken: { title: 'THE KRACKEN', when: '20000 LEAGUES', cls: 'kracken' },
 }
 const bossHost = document.getElementById('bosses')!
