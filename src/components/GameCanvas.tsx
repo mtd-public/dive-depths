@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Scene3D } from '../game/scene3d'
+import { Render2D } from '../game/render2d'
 import type { World } from '../game/physics'
 import type { GamePhase } from '../game/types'
 
@@ -18,7 +18,7 @@ export function GameCanvas({ world, phase }: GameCanvasProps) {
     const parent = canvas?.parentElement
     if (!canvas || !parent) return
 
-    const scene = new Scene3D(canvas)
+    const scene = new Render2D(canvas)
 
     function resize() {
       scene.resize(parent!.clientWidth, parent!.clientHeight)
