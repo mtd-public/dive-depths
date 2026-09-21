@@ -92,6 +92,16 @@ export const WATER_PALETTES: Record<'blue' | 'green' | 'purple' | 'red', WaterPa
 export const WATER_CYCLE_LEAGUES = 5000
 export const WATER_ORDER: (keyof typeof WATER_PALETTES)[] = ['green', 'blue', 'purple', 'red']
 
+/**
+ * The water a boss fight floods the board with, echoing that boss's own
+ * hide/plate palette (smoky gunmetal for the Warden, magma rust for the
+ * Kracken) so its whole lair reads as its domain, not just its silhouette.
+ */
+export const BOSS_TINTS: Record<'warden' | 'kracken', WaterPalette> = {
+  warden: { label: 'The Warden', bands: ['#454550', '#26262e', '#181d21', '#121218'] },
+  kracken: { label: 'The Kracken', bands: ['#a8703a', '#6a3f20', '#3c2416', '#2a1810'] },
+}
+
 export function waterAt(leagues: number): WaterPalette {
   const i = Math.floor(Math.max(0, leagues) / WATER_CYCLE_LEAGUES) % WATER_ORDER.length
   return WATER_PALETTES[WATER_ORDER[i]]
