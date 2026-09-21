@@ -30,7 +30,11 @@ export function GameCanvas({ world, phase }: GameCanvasProps) {
     let raf = 0
     let last = performance.now()
     function frame(ts: number) {
-      const dt = Math.min((ts - last) / 1000, 1 / 30)
+      // See the matching clamp in useGameEngine.ts: rAF timestamps aren't
+      // guaranteed monotonic across a dev-mode double-mount or a tab
+      // resuming from background, and a negative dt here would animate FX
+      // clocks backwards.
+      const dt = Math.max(0, Math.min((ts - last) / 1000, 1 / 30))
       last = ts
       scene.update(world.current, phaseRef.current, dt, ts / 1000)
       raf = requestAnimationFrame(frame)

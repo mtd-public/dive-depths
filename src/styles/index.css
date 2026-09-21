@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&family=Press+Start+2P&display=swap');
 
 :root {
   --bg: #eaf4f8;
@@ -13,6 +13,7 @@
   --btn-bg-hover: #e2eef4;
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'Space Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-arcade: 'Press Start 2P', var(--font-mono);
 }
 
 * {
@@ -699,6 +700,34 @@ button {
   margin: 0;
   color: var(--muted);
   font-size: 14px;
+}
+
+/* ---------- Title screen: card-free, sits directly over the self-playing
+   demo gameplay behind the .overlay scrim ---------- */
+.title-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+}
+
+.title-screen__logo {
+  margin: 0;
+  font-family: var(--font-arcade);
+  font-size: clamp(22px, 6vw, 34px);
+  line-height: 1.5;
+  text-align: center;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35), 0 0 18px rgba(0, 0, 0, 0.4);
+}
+
+.title-screen .btn--primary {
+  font-family: var(--font-arcade);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  padding: 16px 26px;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25), 0 10px 24px -8px rgba(0, 0, 0, 0.5);
 }
 
 /* ---------- Immersive portrait: phone and tablet held upright ----------
