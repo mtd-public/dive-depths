@@ -414,7 +414,7 @@ button {
 .boss-gauge {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top, 0px));
-  bottom: 42%;
+  bottom: 56.5%;
   left: 8px;
   width: 40px;
   display: flex;
