@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "concepts:two-tone": "esbuild scripts/render-two-tone-concepts.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/two-tone-concepts.mjs --log-level=warning && node node_modules/.cache/two-tone-concepts.mjs"
   },
   "dependencies": {
     "framer-motion": "^11.11.17",

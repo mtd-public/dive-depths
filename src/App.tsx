@@ -3,10 +3,11 @@ import { AchievementToasts } from './components/AchievementToasts'
 import { BossBanner } from './components/BossBanner'
 import { GameCanvas } from './components/GameCanvas'
 import { GameOverlay } from './components/GameOverlay'
-import { KeyboardHelp } from './components/KeyboardHelp'
+import { OptionsMenu } from './components/OptionsMenu'
 import { StatsSidebar } from './components/StatsSidebar'
 import { WeaponBadge } from './components/WeaponBadge'
 import { useGameEngine } from './game/useGameEngine'
+import { useArtSettings } from './hooks/useArtSettings'
 import { useBoardControls } from './hooks/useBoardControls'
 
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
     achievementToasts,
     dismissToast,
   } = useGameEngine()
+  const { settings: art, update: updateArt } = useArtSettings()
   const controls = useBoardControls({ onSwipeLeft: steerLeft, onSwipeRight: steerRight, onTap: fire })
 
   return (
@@ -40,7 +42,7 @@ export default function App() {
         </div>
         <div className="topbar__actions">
           <Achievements unlocked={unlockedAchievements} />
-          <KeyboardHelp />
+          <OptionsMenu art={art} onChange={updateArt} />
           <button
             type="button"
             className="btn btn--ghost"
@@ -54,7 +56,7 @@ export default function App() {
 
       <main className="layout">
         <div className="board-shell" {...controls}>
-          <GameCanvas world={world} phase={state.phase} />
+          <GameCanvas world={world} phase={state.phase} art={art} />
           <div className="depth-badge">
             <span className="depth-badge__label">Distance</span>
             <span className="depth-badge__value">{state.distance}L</span>

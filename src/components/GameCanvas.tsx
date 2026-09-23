@@ -1,24 +1,32 @@
 import { useEffect, useRef } from 'react'
 import { Render2D } from '../game/render2d'
+import { RenderTwoTone } from '../game/twoTone/renderTwoTone'
 import type { World } from '../game/physics'
 import type { GamePhase } from '../game/types'
+import type { ArtSettings } from '../hooks/useArtSettings'
 
 interface GameCanvasProps {
   world: { current: World }
   phase: GamePhase
+  art: ArtSettings
 }
 
-export function GameCanvas({ world, phase }: GameCanvasProps) {
+export function GameCanvas({ world, phase, art }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const phaseRef = useRef(phase)
   phaseRef.current = phase
+  const twoToneRef = useRef<RenderTwoTone | null>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
     const parent = canvas?.parentElement
     if (!canvas || !parent) return
 
-    const scene = new Render2D(canvas)
+    // The art style picks the renderer; both share one interface, so
+    // physics and the loop below don't care which one is drawing.
+    const twoTone = art.art === 'twotone' ? new RenderTwoTone(canvas, { hud: false }) : null
+    twoToneRef.current = twoTone
+    const scene = twoTone ?? new Render2D(canvas)
 
     function resize() {
       scene.resize(parent!.clientWidth, parent!.clientHeight)
@@ -45,8 +53,17 @@ export function GameCanvas({ world, phase }: GameCanvasProps) {
       cancelAnimationFrame(raf)
       observer.disconnect()
       scene.dispose()
+      twoToneRef.current = null
     }
-  }, [world])
+  }, [world, art.art])
+
+  // palette changes are a LUT swap on the live renderer, not a remount
+  useEffect(() => {
+    const r = twoToneRef.current
+    if (!r) return
+    r.setPalette(art.palette)
+    r.zoneCycle = art.zoneCycle
+  }, [art.art, art.palette, art.zoneCycle])
 
   return <canvas ref={canvasRef} className="game-canvas" />
 }
