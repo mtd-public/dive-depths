@@ -72,6 +72,7 @@ function initialState(): GameState {
     best: loadBest(),
     lives: LIVES_MAX,
     distance: 0,
+    nextBossLeagues: BOSS_INTERVAL_LEAGUES,
     shotgunT: 0,
     laserReady: false,
     laserActiveT: 0,
@@ -89,6 +90,7 @@ type Action =
       score: number
       lives: number
       distance: number
+      nextBossLeagues: number
       shotgunT: number
       laserReady: boolean
       laserActiveT: number
@@ -117,6 +119,7 @@ function reducer(state: GameState, action: Action): GameState {
             score: action.score,
             lives: action.lives,
             distance: action.distance,
+            nextBossLeagues: action.nextBossLeagues,
             shotgunT: action.shotgunT,
             laserReady: action.laserReady,
             laserActiveT: action.laserActiveT,
@@ -186,6 +189,7 @@ export function useGameEngine() {
     score: 0,
     lives: LIVES_MAX,
     distance: 0,
+    nextBossLeagues: BOSS_INTERVAL_LEAGUES,
     shotgunT: 0,
     laserReady: false,
     laserActiveT: 0,
@@ -244,6 +248,7 @@ export function useGameEngine() {
       score: 0,
       lives: LIVES_MAX,
       distance: 0,
+      nextBossLeagues: BOSS_INTERVAL_LEAGUES,
       shotgunT: 0,
       laserReady: false,
       laserActiveT: 0,
@@ -287,6 +292,7 @@ export function useGameEngine() {
             score: score(world),
             lives: world.lives,
             distance: leaguesForDepth(world.depth),
+            nextBossLeagues: world.nextBossLeagues,
             shotgunT: world.weaponMode === 'shotgun' ? Math.ceil(world.weaponModeT) : 0,
             laserReady: world.laserCharges > 0,
             laserActiveT: world.laserT > 0 ? Math.ceil(world.laserT) : 0,
@@ -299,6 +305,7 @@ export function useGameEngine() {
             next.score !== prev.score ||
             next.lives !== prev.lives ||
             next.distance !== prev.distance ||
+            next.nextBossLeagues !== prev.nextBossLeagues ||
             next.shotgunT !== prev.shotgunT ||
             next.laserReady !== prev.laserReady ||
             next.laserActiveT !== prev.laserActiveT ||

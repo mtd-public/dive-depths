@@ -1,6 +1,7 @@
 import { Achievements } from './components/Achievements'
 import { AchievementToasts } from './components/AchievementToasts'
 import { BossBanner } from './components/BossBanner'
+import { BossGauge } from './components/BossGauge'
 import { GameCanvas } from './components/GameCanvas'
 import { GameOverlay } from './components/GameOverlay'
 import { KeyboardHelp } from './components/KeyboardHelp'
@@ -59,6 +60,11 @@ export default function App() {
             <span className="depth-badge__label">Distance</span>
             <span className="depth-badge__value">{state.distance}L</span>
           </div>
+          <BossGauge
+            distance={state.distance}
+            nextBossLeagues={state.nextBossLeagues}
+            bossActive={state.bossActive}
+          />
           <BossBanner active={state.bossActive} hpFrac={state.bossHpFrac} variant={state.bossVariant} />
           <WeaponBadge
             world={world}

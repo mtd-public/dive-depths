@@ -405,6 +405,148 @@ button {
   line-height: 1.1;
 }
 
+/* ---------- Boss gauge: left edge, every layout ----------
+   A slim thermometer: the current leg's start at the top, the next boss at
+   the bulb, the sub marker sliding down the tube (its `top` and the fill's
+   `height` are percentages set in BossGauge.tsx). Anchored top and bottom
+   so it scales with the board's height, stopping above the lower half of
+   the board where the boss itself fights. */
+.boss-gauge {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  bottom: 56.5%;
+  left: 8px;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0 7px;
+  border-radius: 12px;
+  background: rgba(8, 20, 33, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  --gauge-accent: #ff5a5a;
+  --gauge-accent-soft: rgba(255, 90, 90, 0.35);
+}
+
+.boss-gauge--kracken {
+  --gauge-accent: #ff8c1a;
+  --gauge-accent-soft: rgba(255, 140, 26, 0.35);
+}
+
+.boss-gauge__start,
+.boss-gauge__boss-at {
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.boss-gauge__start {
+  margin-bottom: 5px;
+}
+
+.boss-gauge__tube {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 40px;
+  width: 8px;
+  border-radius: 4px 4px 0 0;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-bottom: none;
+}
+
+.boss-gauge__fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(180deg, rgba(120, 220, 255, 0.7), var(--gauge-accent));
+  transition: height 0.4s ease-out;
+}
+
+.boss-gauge__marker {
+  position: absolute;
+  left: 50%;
+  transform: translate(-10px, -50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  transition: top 0.4s ease-out;
+}
+
+.boss-gauge__sub {
+  fill: #ffd166;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+  flex-shrink: 0;
+}
+
+.boss-gauge__sub-port {
+  fill: #1f6fa8;
+}
+
+.boss-gauge__to-go {
+  padding: 1px 4px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #ffffff;
+  background: rgba(8, 20, 33, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  white-space: nowrap;
+}
+
+.boss-gauge__bulb {
+  width: 16px;
+  height: 16px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: var(--gauge-accent);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 0 6px var(--gauge-accent-soft);
+  flex-shrink: 0;
+}
+
+.boss-gauge__boss {
+  margin-top: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--gauge-accent);
+  line-height: 1.2;
+}
+
+.boss-gauge--kracken .boss-gauge__boss {
+  font-size: 7px;
+  letter-spacing: 0;
+}
+
+.boss-gauge--fight .boss-gauge__bulb {
+  animation: boss-gauge-pulse 0.9s ease-in-out infinite;
+}
+
+.boss-gauge--fight .boss-gauge__to-go {
+  color: #ffd7d7;
+  border-color: var(--gauge-accent);
+}
+
+@keyframes boss-gauge-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 4px var(--gauge-accent-soft);
+  }
+  50% {
+    box-shadow: 0 0 14px var(--gauge-accent);
+  }
+}
+
 /* ---------- Weapon badge: follows the sub's x, sits just above it ----------
    Anchored by `bottom`, not `top`, so its lower edge stays a fixed distance
    above the sub's screen row (SUB_Y / BOARD_H in physics.ts, 22% — hence
